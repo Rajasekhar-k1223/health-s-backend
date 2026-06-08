@@ -1,0 +1,97 @@
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from typing import List
+import uuid
+
+from app.core.database import get_db
+from app.core.security import require_role
+from app.models.user import RoleEnum, User
+from app.models.telehealth import TelehealthSession
+from app.schemas.telehealth import TelehealthSessionCreate, TelehealthSessionResponse, TelehealthSessionUpdate
+
+router = APIRouter(prefix="/telehealth", tags=["telehealth"])
+
+@router.post("/visits", response_model=TelehealthSessionResponse)
+def create_visit(
+    session_in: TelehealthSessionCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role([RoleEnum.admin, RoleEnum.doctor]))
+):
+    # Auto-generate a generic meeting URL for now
+    if not session_in.meeting_url:
+        session_in.meeting_url = f"https://meet.sentinelhealth.os/{uuid.uuid4().hex[:10]}"
+        
+    new_session = TelehealthSession(**session_in.dict())
+    db.add(new_session)
+    db.commit()
+    db.refresh(new_session)
+    return new_session
+
+@router.get("/visits", response_model=List[TelehealthSessionResponse])
+def get_visits(
+    skip: int = 0, limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role([RoleEnum.admin, RoleEnum.doctor, RoleEnum.nurse, RoleEnum.patient]))
+):
+    query = db.query(TelehealthSession)
+    
+    if current_user.role == RoleEnum.doctor:
+        query = query.filter(TelehealthSession.doctor_id == current_user.id)
+    elif current_user.role == RoleEnum.patient:
+        # Assuming we can find the patient ID for the user
+        from app.models.patient import Patient
+        patient = db.query(Patient).filter(Patient.user_id == current_user.id).first()
+        if patient:
+            query = query.filter(TelehealthSession.patient_id == patient.id)
+        else:
+            return []
+            
+    return query.offset(skip).limit(limit).all()
+
+@router.get("/visits/{visit_id}", response_model=TelehealthSessionResponse)
+def get_visit(
+    visit_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role([RoleEnum.admin, RoleEnum.doctor, RoleEnum.nurse, RoleEnum.patient]))
+):
+    session = db.query(TelehealthSession).filter(TelehealthSession.id == visit_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Visit not found")
+    # Add auth checks to ensure patient only sees their own visits
+    if current_user.role == RoleEnum.patient:
+        from app.models.patient import Patient
+        patient = db.query(Patient).filter(Patient.user_id == current_user.id).first()
+        if not patient or session.patient_id != patient.id:
+            raise HTTPException(status_code=403, detail="Not authorized")
+    return session
+
+@router.post("/visits/{visit_id}/start", response_model=TelehealthSessionResponse)
+def start_visit(
+    visit_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role([RoleEnum.admin, RoleEnum.doctor]))
+):
+    session = db.query(TelehealthSession).filter(TelehealthSession.id == visit_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Visit not found")
+        
+    session.status = "active"
+    db.commit()
+    db.refresh(session)
+    return session
+
+@router.post("/visits/{visit_id}/complete", response_model=TelehealthSessionResponse)
+def complete_visit(
+    visit_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role([RoleEnum.admin, RoleEnum.doctor]))
+):
+    session = db.query(TelehealthSession).filter(TelehealthSession.id == visit_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Visit not found")
+        
+    session.status = "completed"
+    db.commit()
+    db.refresh(session)
+    return session
+
