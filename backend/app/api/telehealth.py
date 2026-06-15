@@ -7,6 +7,7 @@ from app.core.database import get_db
 from app.core.security import require_role
 from app.models.user import RoleEnum, User
 from app.models.telehealth import TelehealthSession
+from app.models.patient import Patient
 from app.schemas.telehealth import TelehealthSessionCreate, TelehealthSessionResponse, TelehealthSessionUpdate
 
 router = APIRouter(prefix="/telehealth", tags=["telehealth"])
@@ -15,7 +16,7 @@ router = APIRouter(prefix="/telehealth", tags=["telehealth"])
 def create_visit(
     session_in: TelehealthSessionCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role([RoleEnum.admin, RoleEnum.doctor]))
+    current_user: User = Depends(require_role([RoleEnum.super_admin, RoleEnum.doctor]))
 ):
     # Auto-generate a generic meeting URL for now
     if not session_in.meeting_url:
@@ -31,15 +32,18 @@ def create_visit(
 def get_visits(
     skip: int = 0, limit: int = 100,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role([RoleEnum.admin, RoleEnum.doctor, RoleEnum.nurse, RoleEnum.patient]))
+    current_user: User = Depends(require_role([RoleEnum.super_admin, RoleEnum.doctor, RoleEnum.nurse, RoleEnum.patient]))
 ):
     query = db.query(TelehealthSession)
+    
+    # Enforce Multi-Tenant Data Governance
+    if current_user.role != RoleEnum.super_admin:
+        query = query.join(Patient, TelehealthSession.patient_id == Patient.id).filter(Patient.organization_id == current_user.organization_id)
     
     if current_user.role == RoleEnum.doctor:
         query = query.filter(TelehealthSession.doctor_id == current_user.id)
     elif current_user.role == RoleEnum.patient:
         # Assuming we can find the patient ID for the user
-        from app.models.patient import Patient
         patient = db.query(Patient).filter(Patient.user_id == current_user.id).first()
         if patient:
             query = query.filter(TelehealthSession.patient_id == patient.id)
@@ -52,14 +56,20 @@ def get_visits(
 def get_visit(
     visit_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role([RoleEnum.admin, RoleEnum.doctor, RoleEnum.nurse, RoleEnum.patient]))
+    current_user: User = Depends(require_role([RoleEnum.super_admin, RoleEnum.doctor, RoleEnum.nurse, RoleEnum.patient]))
 ):
     session = db.query(TelehealthSession).filter(TelehealthSession.id == visit_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Visit not found")
+        
+    # Enforce Multi-Tenant Data Governance
+    if current_user.role != RoleEnum.super_admin:
+        patient = db.query(Patient).filter(Patient.id == session.patient_id).first()
+        if not patient or patient.organization_id != current_user.organization_id:
+            raise HTTPException(status_code=403, detail="Not authorized for this organization's data")
+
     # Add auth checks to ensure patient only sees their own visits
     if current_user.role == RoleEnum.patient:
-        from app.models.patient import Patient
         patient = db.query(Patient).filter(Patient.user_id == current_user.id).first()
         if not patient or session.patient_id != patient.id:
             raise HTTPException(status_code=403, detail="Not authorized")
@@ -69,11 +79,17 @@ def get_visit(
 def start_visit(
     visit_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role([RoleEnum.admin, RoleEnum.doctor]))
+    current_user: User = Depends(require_role([RoleEnum.super_admin, RoleEnum.doctor]))
 ):
     session = db.query(TelehealthSession).filter(TelehealthSession.id == visit_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Visit not found")
+        
+    # Enforce Multi-Tenant Data Governance
+    if current_user.role != RoleEnum.super_admin:
+        patient = db.query(Patient).filter(Patient.id == session.patient_id).first()
+        if not patient or patient.organization_id != current_user.organization_id:
+            raise HTTPException(status_code=403, detail="Not authorized for this organization's data")
         
     session.status = "active"
     db.commit()
@@ -84,11 +100,17 @@ def start_visit(
 def complete_visit(
     visit_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role([RoleEnum.admin, RoleEnum.doctor]))
+    current_user: User = Depends(require_role([RoleEnum.super_admin, RoleEnum.doctor]))
 ):
     session = db.query(TelehealthSession).filter(TelehealthSession.id == visit_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Visit not found")
+        
+    # Enforce Multi-Tenant Data Governance
+    if current_user.role != RoleEnum.super_admin:
+        patient = db.query(Patient).filter(Patient.id == session.patient_id).first()
+        if not patient or patient.organization_id != current_user.organization_id:
+            raise HTTPException(status_code=403, detail="Not authorized for this organization's data")
         
     session.status = "completed"
     db.commit()

@@ -24,6 +24,11 @@ def register_device(
         raise HTTPException(status_code=400, detail="Device ID already registered")
         
     new_device = Device(**device_in.dict())
+    
+    # Enforce Multi-Tenant Data Governance
+    if current_user.role != RoleEnum.super_admin:
+        new_device.organization_id = current_user.organization_id
+        
     db.add(new_device)
     db.commit()
     db.refresh(new_device)
@@ -35,7 +40,12 @@ def get_devices(
     db: Session = Depends(get_db),
     current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.hospital_admin, RoleEnum.doctor, RoleEnum.nurse]))
 ):
-    return db.query(Device).offset(skip).limit(limit).all()
+    query = db.query(Device)
+    # Enforce Multi-Tenant Data Governance
+    if current_user.role != RoleEnum.super_admin:
+        query = query.filter(Device.organization_id == current_user.organization_id)
+        
+    return query.offset(skip).limit(limit).all()
 
 @router.put("/{device_id}", response_model=DeviceResponse)
 def update_device(
@@ -47,6 +57,10 @@ def update_device(
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
+        
+    # Enforce Multi-Tenant Data Governance
+    if current_user.role != RoleEnum.super_admin and device.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=403, detail="Device does not belong to your organization")
         
     for key, value in device_update.dict(exclude_unset=True).items():
         setattr(device, key, value)
@@ -66,6 +80,10 @@ def assign_device(
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
         
+    # Enforce Multi-Tenant Data Governance
+    if current_user.role != RoleEnum.super_admin and device.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=403, detail="Device does not belong to your organization")
+        
     device.patient_id = assignment.patient_id
     db.commit()
     db.refresh(device)
@@ -80,6 +98,10 @@ def generate_device_credentials(
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=404, detail="Device not found")
+        
+    # Enforce Multi-Tenant Data Governance
+    if current_user.role != RoleEnum.super_admin and device.organization_id != current_user.organization_id:
+        raise HTTPException(status_code=403, detail="Device does not belong to your organization")
         
     # Generate an API key (only returned once)
     api_key = secrets.token_urlsafe(32)

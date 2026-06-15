@@ -1,5 +1,12 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, Depends
 from typing import Dict, List
+from sqlalchemy.orm import Session
+from jose import JWTError, jwt
+from app.core.security import SECRET_KEY, ALGORITHM
+from app.core.database import get_db
+from app.models.user import User, RoleEnum
+from app.models.telehealth import TelehealthSession
+from app.models.patient import Patient
 import json
 
 router = APIRouter(prefix="/webrtc", tags=["webrtc"])
@@ -36,11 +43,43 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 @router.websocket("/ws/{room_id}")
-async def webrtc_signaling(websocket: WebSocket, room_id: str):
+async def webrtc_signaling(
+    websocket: WebSocket, 
+    room_id: str,
+    token: str = Query(None),
+    db: Session = Depends(get_db)
+):
     """
-    Handles WebRTC Signaling (SDP Offers, Answers, and ICE Candidates)
-    for peer-to-peer video/audio connections.
+    WebSocket endpoint for WebRTC signaling (SDP offers/answers, ICE candidates).
     """
+    if not token:
+        await websocket.close(code=1008, reason="Missing authentication token")
+        return
+        
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            await websocket.close(code=1008, reason="Invalid token payload")
+            return
+    except JWTError:
+        await websocket.close(code=1008, reason="Invalid or expired token")
+        return
+        
+    user = db.query(User).filter(User.username == username).first()
+    if not user or not user.is_active:
+        await websocket.close(code=1008, reason="User not found or inactive")
+        return
+        
+    # Enforce Multi-Tenant Data Governance
+    if user.role != RoleEnum.super_admin:
+        session_model = db.query(TelehealthSession).filter(TelehealthSession.id == int(room_id)).first()
+        if session_model:
+            patient = db.query(Patient).filter(Patient.id == session_model.patient_id).first()
+            if not patient or patient.organization_id != user.organization_id:
+                await websocket.close(code=1008, reason="Unauthorized: Video Room belongs to outside organization")
+                return
+
     await manager.connect(websocket, room_id)
     try:
         while True:

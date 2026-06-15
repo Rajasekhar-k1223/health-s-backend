@@ -7,6 +7,7 @@ from app.core.database import get_db
 from app.core.security import require_role
 from app.models.user import RoleEnum, User
 from app.models.alert import Alert
+from app.models.patient import Patient
 from app.schemas.alert import AlertCreate, AlertResponse, AlertResolve
 from app.services.alert_ai import generate_ai_insight
 
@@ -20,6 +21,11 @@ def get_all_alerts(
     current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.hospital_admin, RoleEnum.doctor, RoleEnum.nurse]))
 ):
     query = db.query(Alert)
+    
+    # Enforce Multi-Tenant Data Governance
+    if current_user.role != RoleEnum.super_admin:
+        query = query.join(Patient, Alert.patient_id == Patient.id).filter(Patient.organization_id == current_user.organization_id)
+
     if status == 'active':
         query = query.filter(Alert.is_resolved == False)
     elif status == 'resolved':
@@ -33,6 +39,12 @@ def get_patient_alerts(
     db: Session = Depends(get_db),
     current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.hospital_admin, RoleEnum.doctor, RoleEnum.nurse]))
 ):
+    # Enforce Multi-Tenant Data Governance
+    if current_user.role != RoleEnum.super_admin:
+        patient = db.query(Patient).filter(Patient.id == patient_id).first()
+        if not patient or patient.organization_id != current_user.organization_id:
+            raise HTTPException(status_code=403, detail="Patient does not belong to your organization")
+
     return db.query(Alert).filter(Alert.patient_id == patient_id).order_by(Alert.timestamp.desc()).all()
 
 @router.post("/", response_model=AlertResponse)
@@ -62,6 +74,12 @@ def acknowledge_alert(
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
         
+    # Enforce Multi-Tenant Data Governance
+    if current_user.role != RoleEnum.super_admin:
+        patient = db.query(Patient).filter(Patient.id == alert.patient_id).first()
+        if not patient or patient.organization_id != current_user.organization_id:
+            raise HTTPException(status_code=403, detail="Alert belongs to a patient outside your organization")
+        
     alert.is_acknowledged = True
     alert.acknowledged_by = current_user.id
     db.commit()
@@ -78,6 +96,12 @@ def resolve_alert(
     alert = db.query(Alert).filter(Alert.id == alert_id).first()
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
+        
+    # Enforce Multi-Tenant Data Governance
+    if current_user.role != RoleEnum.super_admin:
+        patient = db.query(Patient).filter(Patient.id == alert.patient_id).first()
+        if not patient or patient.organization_id != current_user.organization_id:
+            raise HTTPException(status_code=403, detail="Alert belongs to a patient outside your organization")
         
     alert.is_resolved = True
     alert.resolved_by = current_user.id

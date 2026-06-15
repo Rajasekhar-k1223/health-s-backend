@@ -9,6 +9,7 @@ from app.core.database import get_db
 from app.core.security import require_role
 from app.models.user import RoleEnum
 from app.models.document import Document
+from app.models.patient import Patient
 from app.schemas.document import DocumentResponse, SearchResult
 from app.services.document_ai import process_document_pipeline
 
@@ -29,6 +30,12 @@ async def upload_document(
     """Uploads a PDF and queues it for the OCR & AI extraction pipeline."""
     if not file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+        
+    # Enforce Multi-Tenant Data Governance
+    if current_user.role != RoleEnum.super_admin:
+        patient = db.query(Patient).filter(Patient.id == patient_id).first()
+        if not patient or patient.organization_id != current_user.organization_id:
+            raise HTTPException(status_code=403, detail="Patient does not belong to your organization")
         
     file_id = str(uuid.uuid4())
     safe_filename = f"{file_id}_{file.filename}"
@@ -60,6 +67,12 @@ def get_patient_documents(
     current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.hospital_admin, RoleEnum.doctor, RoleEnum.nurse]))
 ):
     """Returns all processed documents for a given patient."""
+    # Enforce Multi-Tenant Data Governance
+    if current_user.role != RoleEnum.super_admin:
+        patient = db.query(Patient).filter(Patient.id == patient_id).first()
+        if not patient or patient.organization_id != current_user.organization_id:
+            raise HTTPException(status_code=403, detail="Patient does not belong to your organization")
+            
     return db.query(Document).filter(Document.patient_id == patient_id).order_by(Document.uploaded_at.desc()).all()
 
 @router.post("/search", response_model=List[SearchResult])
@@ -70,6 +83,14 @@ def search_documents(
     current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.hospital_admin, RoleEnum.doctor]))
 ):
     """Semantic RAG search over processed medical documents via Qdrant."""
+    # Enforce Multi-Tenant Data Governance
+    if current_user.role != RoleEnum.super_admin and patient_id:
+        patient = db.query(Patient).filter(Patient.id == patient_id).first()
+        if not patient or patient.organization_id != current_user.organization_id:
+            raise HTTPException(status_code=403, detail="Patient does not belong to your organization")
+    elif current_user.role != RoleEnum.super_admin and not patient_id:
+        raise HTTPException(status_code=400, detail="Global search requires a patient_id to enforce tenant isolation")
+
     try:
         # In a real setup:
         # model = SentenceTransformer('all-MiniLM-L6-v2')

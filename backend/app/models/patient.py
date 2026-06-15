@@ -20,6 +20,7 @@ class Patient(Base):
     primary_doctor_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     ward_id = Column(Integer, ForeignKey("wards.id"), nullable=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True)
 
     devices = relationship("Device", back_populates="patient")
     ward = relationship("Ward", back_populates="patients")

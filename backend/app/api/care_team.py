@@ -11,7 +11,7 @@ router = APIRouter(prefix="/care-team", tags=["care-team"])
 def get_patient_care_team(
     patient_id: int,
     db: Session = Depends(get_db),
-    current_user = Depends(require_role([RoleEnum.admin, RoleEnum.doctor, RoleEnum.nurse, RoleEnum.caregiver]))
+    current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.doctor, RoleEnum.nurse, RoleEnum.nurse]))
 ):
     team_members = db.query(CareTeam).filter(CareTeam.patient_id == patient_id).all()
     

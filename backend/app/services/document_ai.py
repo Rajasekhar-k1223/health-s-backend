@@ -1,5 +1,6 @@
 import os
 import asyncio
+import httpx
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.models.document import Document
@@ -51,10 +52,26 @@ async def process_document_pipeline(document_id: int):
         doc.extracted_text = extracted_text
         
         # 2. Structuring & Summarization Stage (Ollama)
-        await asyncio.sleep(2) # Simulate local LLM inference
+        prompt = f"Summarize the following medical document and extract key clinical findings. Keep the summary under 3 sentences.\n\nDocument Text:\n{extracted_text}"
         
-        # Simulated Ollama response
-        summary = "Patient presents with elevated glucose levels indicating potential hyperglycemia. Recommended follow-up HbA1c."
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    "http://localhost:11434/api/generate",
+                    json={
+                        "model": "llama3.2",
+                        "prompt": prompt,
+                        "stream": False
+                    }
+                )
+                if response.status_code == 200:
+                    summary = response.json().get("response", "Error generating summary.")
+                else:
+                    summary = f"LLM Error: Status {response.status_code}"
+        except httpx.RequestError as e:
+            print(f"Failed to connect to Ollama: {e}")
+            summary = "(LLM Offline) Simulated Summary: Patient presents with elevated glucose levels indicating potential hyperglycemia. Recommended follow-up HbA1c."
+
         disclaimer = "\n\nClinical insights for review. This is not a diagnosis. Clinical review is recommended."
         doc.ai_summary = summary + disclaimer
         

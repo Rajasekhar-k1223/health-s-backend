@@ -14,5 +14,6 @@ class Device(Base):
     device_type = Column(String(50), nullable=False)
     status = Column(String(20), default="active")
     patient_id = Column(Integer, ForeignKey("patients.id"), nullable=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True)
 
     patient = relationship("Patient", back_populates="devices")

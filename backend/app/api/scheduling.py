@@ -48,6 +48,13 @@ def book_appointment(
     db.refresh(db_appt)
     return db_appt
 
+@router.get("/appointments/all")
+def get_all_appointments(
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.hospital_admin, RoleEnum.doctor, RoleEnum.nurse]))
+):
+    return db.query(Appointment).order_by(Appointment.id.desc()).limit(200).all()
+
 @router.get("/appointments/patient/{patient_id}")
 def get_patient_appointments(
     patient_id: int,
@@ -55,3 +62,17 @@ def get_patient_appointments(
     current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.hospital_admin, RoleEnum.doctor, RoleEnum.nurse]))
 ):
     return db.query(Appointment).filter(Appointment.patient_id == patient_id).all()
+
+@router.delete("/appointments/{appointment_id}")
+def cancel_appointment(
+    appointment_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.hospital_admin, RoleEnum.doctor, RoleEnum.nurse]))
+):
+    appt = db.query(Appointment).filter(Appointment.id == appointment_id).first()
+    if not appt:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+    db.delete(appt)
+    db.commit()
+    return {"message": "Appointment cancelled"}
+

@@ -11,7 +11,7 @@ router = APIRouter(prefix="/wards", tags=["wards"])
 @router.get("/")
 def get_wards(
     db: Session = Depends(get_db),
-    current_user = Depends(require_role([RoleEnum.admin, RoleEnum.doctor, RoleEnum.nurse]))
+    current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.doctor, RoleEnum.nurse]))
 ):
     # Mocking the ward aggregate responses for the UI MVP
     wards = db.query(Ward).all()

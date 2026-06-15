@@ -38,7 +38,7 @@ def login(response: Response, form_data: OAuth2PasswordRequestForm = Depends(), 
     # Generate Access Token
     access_token_expires = timedelta(minutes=15)
     access_token = create_access_token(
-        data={"sub": user.username, "role": user.role.value}, expires_delta=access_token_expires
+        data={"sub": user.username, "role": user.role.value, "org_id": user.organization_id}, expires_delta=access_token_expires
     )
     
     # Generate Refresh Token
@@ -86,7 +86,7 @@ def refresh_token(request: Request, response: Response, db: Session = Depends(ge
     # Generate new access token
     access_token_expires = timedelta(minutes=15)
     access_token = create_access_token(
-        data={"sub": user.username, "role": user.role.value}, expires_delta=access_token_expires
+        data={"sub": user.username, "role": user.role.value, "org_id": user.organization_id}, expires_delta=access_token_expires
     )
     
     return {"access_token": access_token, "token_type": "bearer"}
@@ -109,5 +109,6 @@ def get_me(current_user: User = Depends(get_current_user)):
         "id": current_user.id,
         "username": current_user.username,
         "role": current_user.role,
-        "is_active": current_user.is_active
+        "is_active": current_user.is_active,
+        "organization_id": current_user.organization_id
     }

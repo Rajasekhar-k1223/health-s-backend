@@ -14,7 +14,7 @@ router = APIRouter(prefix="/ccm", tags=["chronic_care"])
 def create_program(
     program_in: CareProgramCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role([RoleEnum.admin, RoleEnum.doctor]))
+    current_user: User = Depends(require_role([RoleEnum.super_admin, RoleEnum.doctor]))
 ):
     new_program = CareProgram(**program_in.dict())
     db.add(new_program)
@@ -26,7 +26,7 @@ def create_program(
 def get_programs(
     skip: int = 0, limit: int = 100,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role([RoleEnum.admin, RoleEnum.doctor, RoleEnum.nurse]))
+    current_user: User = Depends(require_role([RoleEnum.super_admin, RoleEnum.doctor, RoleEnum.nurse]))
 ):
     return db.query(CareProgram).offset(skip).limit(limit).all()
 
@@ -34,7 +34,7 @@ def get_programs(
 def enroll_patient(
     enrollment_in: EnrollmentCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role([RoleEnum.admin, RoleEnum.doctor]))
+    current_user: User = Depends(require_role([RoleEnum.super_admin, RoleEnum.doctor]))
 ):
     # Check if already enrolled in this specific program
     existing = db.query(ProgramEnrollment).filter(
@@ -56,7 +56,7 @@ def enroll_patient(
 def get_patient_enrollments(
     patient_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role([RoleEnum.admin, RoleEnum.doctor, RoleEnum.nurse, RoleEnum.patient]))
+    current_user: User = Depends(require_role([RoleEnum.super_admin, RoleEnum.doctor, RoleEnum.nurse, RoleEnum.patient]))
 ):
     return db.query(ProgramEnrollment).filter(ProgramEnrollment.patient_id == patient_id).all()
 
@@ -65,7 +65,7 @@ def update_enrollment(
     enrollment_id: int,
     update_data: EnrollmentUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role([RoleEnum.admin, RoleEnum.doctor, RoleEnum.nurse]))
+    current_user: User = Depends(require_role([RoleEnum.super_admin, RoleEnum.doctor, RoleEnum.nurse]))
 ):
     enrollment = db.query(ProgramEnrollment).filter(ProgramEnrollment.id == enrollment_id).first()
     if not enrollment:

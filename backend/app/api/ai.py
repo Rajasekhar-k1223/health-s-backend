@@ -27,7 +27,7 @@ def create_insight(
 def get_patient_insights(
     patient_id: int,
     db: Session = Depends(get_db),
-    current_user = Depends(require_role([RoleEnum.admin, RoleEnum.doctor, RoleEnum.nurse]))
+    current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.doctor, RoleEnum.nurse]))
 ):
     return db.query(Insight).filter(Insight.patient_id == patient_id).order_by(Insight.timestamp.desc()).all()
 
@@ -35,7 +35,7 @@ def get_patient_insights(
 def review_insight(
     insight_id: int,
     db: Session = Depends(get_db),
-    current_user = Depends(require_role([RoleEnum.admin, RoleEnum.doctor]))
+    current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.doctor]))
 ):
     insight = db.query(Insight).filter(Insight.id == insight_id).first()
     if not insight:
@@ -49,7 +49,7 @@ def review_insight(
 def add_doctor_note(
     note_in: NoteCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role([RoleEnum.admin, RoleEnum.doctor]))
+    current_user: User = Depends(require_role([RoleEnum.super_admin, RoleEnum.doctor]))
 ):
     new_note = DoctorNote(**note_in.dict(), doctor_id=current_user.id)
     db.add(new_note)
@@ -61,7 +61,7 @@ def add_doctor_note(
 def get_patient_summary(
     patient_id: int,
     db: Session = Depends(get_db),
-    current_user = Depends(require_role([RoleEnum.admin, RoleEnum.doctor, RoleEnum.nurse]))
+    current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.doctor, RoleEnum.nurse]))
 ):
     patient = db.query(Patient).filter(Patient.id == patient_id).first()
     if not patient:
@@ -83,7 +83,7 @@ def update_patient_priority(
     patient_id: int,
     priority: str,
     db: Session = Depends(get_db),
-    current_user = Depends(require_role([RoleEnum.admin, RoleEnum.doctor]))
+    current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.doctor]))
 ):
     patient = db.query(Patient).filter(Patient.id == patient_id).first()
     if not patient:

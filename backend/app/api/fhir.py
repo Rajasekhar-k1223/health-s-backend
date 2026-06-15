@@ -14,7 +14,7 @@ from app.services import fhir_sync
 router = APIRouter(prefix="/fhir", tags=["fhir"])
 
 @router.get("/stats")
-def get_fhir_stats(current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.hospital_admin, RoleEnum.technician]))):
+def get_fhir_stats(current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.hospital_admin, RoleEnum.nurse]))):
     """Pings the HAPI FHIR server and returns resource counts for the dashboard"""
     try:
         # Check connection
@@ -56,7 +56,7 @@ def sync_device(
     device_id: int,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.hospital_admin, RoleEnum.technician]))
+    current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.hospital_admin, RoleEnum.nurse]))
 ):
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:

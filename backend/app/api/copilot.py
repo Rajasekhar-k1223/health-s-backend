@@ -1,4 +1,5 @@
 import asyncio
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.core.database import get_db
@@ -11,24 +12,25 @@ from app.schemas.copilot import CopilotQuery, CopilotResponse
 
 router = APIRouter(prefix="/copilot", tags=["copilot"])
 
-async def simulate_ollama_inference(prompt: str) -> str:
-    """Simulates a call to a local Ollama LLM with various prompt behaviors."""
-    await asyncio.sleep(1.5)
-    
-    if "Patient Summary" in prompt:
-        return "The patient is a 65-year-old male with a history of hypertension. Recent telemetry indicates stable heart rate but occasional SpO2 dips during sleep. No recent acute events."
-    elif "Alert Explanation" in prompt:
-        return "The alert was triggered because the patient's SpO2 dropped below 90% for over 3 minutes. This may indicate sleep apnea or respiratory distress. Immediate assessment is advised."
-    elif "Risk Explanation" in prompt:
-        return "The AI Risk Score of 85 was calculated due to compounding factors: advanced age, history of hypertension, and a recent cluster of high-severity alerts related to tachycardia."
-    elif "Visit Summary" in prompt:
-        return "Patient reported a mild headache for 3 days and low-grade fever. Recommended rest, hydration, and over-the-counter ibuprofen. Return if symptoms worsen."
-    elif "Care Plan" in prompt:
-        return "GOAL: Maintain SpO2 > 92%.\nACTIVITY 1: Daily breathing exercises.\nACTIVITY 2: Continuous pulse oximetry monitoring during sleep."
-    elif "Clinical Note" in prompt:
-        return "Patient reviewed today. Vital signs are mostly stable. Continues on current medication regimen. Next follow-up in 4 weeks."
-    else:
-        return "I am the Sentinel HealthOS AI Copilot. How can I assist you with this patient's clinical data today?"
+async def generate_ollama_inference(prompt: str) -> str:
+    """Calls a local Ollama LLM to answer the Copilot query."""
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                "http://localhost:11434/api/generate",
+                json={
+                    "model": "llama3.2",
+                    "prompt": prompt,
+                    "stream": False
+                }
+            )
+            if response.status_code == 200:
+                return response.json().get("response", "Error generating response.")
+            else:
+                return f"LLM Error: Status {response.status_code}"
+    except httpx.RequestError as e:
+        print(f"Failed to connect to Ollama: {e}")
+        return f"(LLM Offline) Simulated Response for prompt: {prompt[:50]}..."
 
 @router.post("/query", response_model=CopilotResponse)
 async def copilot_query(
@@ -71,7 +73,7 @@ async def copilot_query(
         prompt = query_in.query or "General Chat"
 
     # Inference
-    response_text = await simulate_ollama_inference(prompt)
+    response_text = await generate_ollama_inference(prompt)
     
     # Strict Compliance Disclaimer
     disclaimer = "\n\nClinical insights for review. This is not a diagnosis. Clinical review is recommended."

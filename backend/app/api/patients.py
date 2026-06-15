@@ -25,6 +25,11 @@ def create_patient(
         patient_data["mrn"] = f"MRN-{uuid.uuid4().hex[:8].upper()}"
         
     new_patient = Patient(**patient_data)
+    
+    # Enforce Multi-Tenant Data Governance: Tie patient to current user's organization
+    if current_user.role != RoleEnum.super_admin:
+        new_patient.organization_id = current_user.organization_id
+        
     db.add(new_patient)
     db.commit()
     db.refresh(new_patient)
@@ -38,20 +43,30 @@ def create_patient(
 def get_patients(
     skip: int = 0, limit: int = 100, 
     db: Session = Depends(get_db),
-    current_user = Depends(require_role([RoleEnum.admin, RoleEnum.doctor, RoleEnum.nurse]))
+    current_user = Depends(require_role([RoleEnum.hospital_admin, RoleEnum.doctor, RoleEnum.nurse]))
 ):
-    return db.query(Patient).offset(skip).limit(limit).all()
+    query = db.query(Patient)
+    # Enforce Multi-Tenant Data Governance
+    if current_user.role != RoleEnum.super_admin:
+        query = query.filter(Patient.organization_id == current_user.organization_id)
+        
+    return query.offset(skip).limit(limit).all()
 
 @router.get("/{patient_id}", response_model=PatientResponse)
 def get_patient(
     patient_id: int, 
     db: Session = Depends(get_db),
-    current_user = Depends(require_role([RoleEnum.admin, RoleEnum.doctor, RoleEnum.nurse, RoleEnum.patient]))
+    current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.doctor, RoleEnum.nurse, RoleEnum.patient]))
 ):
     patient = db.query(Patient).filter(Patient.id == patient_id).first()
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
     
+    # Enforce Multi-Tenant Data Governance
+    if current_user.role != RoleEnum.super_admin and current_user.role != RoleEnum.patient:
+        if patient.organization_id != current_user.organization_id:
+            raise HTTPException(status_code=403, detail="Patient does not belong to your organization")
+
     # If the user is a patient, they can only view their own record
     if current_user.role == RoleEnum.patient and patient.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not enough permissions to view this patient")
@@ -69,6 +84,11 @@ def update_patient(
     patient = db.query(Patient).filter(Patient.id == patient_id).first()
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
+        
+    # Enforce Multi-Tenant Data Governance
+    if current_user.role != RoleEnum.super_admin:
+        if patient.organization_id != current_user.organization_id:
+            raise HTTPException(status_code=403, detail="Patient does not belong to your organization")
         
     for key, value in patient_in.dict(exclude_unset=True).items():
         setattr(patient, key, value)
@@ -108,7 +128,7 @@ def get_medical_history(
 def get_patient_360(
     patient_id: int, 
     db: Session = Depends(get_db),
-    current_user = Depends(require_role([RoleEnum.admin, RoleEnum.doctor, RoleEnum.nurse]))
+    current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.doctor, RoleEnum.nurse]))
 ):
     patient = db.query(Patient).filter(Patient.id == patient_id).first()
     if not patient:

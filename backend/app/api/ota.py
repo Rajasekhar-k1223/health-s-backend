@@ -14,7 +14,7 @@ router = APIRouter(prefix="/ota", tags=["ota"])
 def create_firmware_release(
     firmware_in: FirmwareReleaseCreate,
     db: Session = Depends(get_db),
-    current_user = Depends(require_role([RoleEnum.admin]))
+    current_user = Depends(require_role([RoleEnum.super_admin]))
 ):
     fw = FirmwareRelease(**firmware_in.dict())
     db.add(fw)
@@ -26,7 +26,7 @@ def create_firmware_release(
 def schedule_ota_deployment(
     deployment_in: OTADeploymentCreate,
     db: Session = Depends(get_db),
-    current_user = Depends(require_role([RoleEnum.admin]))
+    current_user = Depends(require_role([RoleEnum.super_admin]))
 ):
     fw = db.query(FirmwareRelease).filter(FirmwareRelease.version == deployment_in.target_firmware_version).first()
     if not fw:
