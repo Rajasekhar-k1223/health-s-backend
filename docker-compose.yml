@@ -152,6 +152,9 @@ services:
       - .env
     networks:
       - sentinel-net
+    volumes:
+      - ./sentinel-core-health:/app
+      - /app/node_modules
 
 volumes:
   mysql_data:

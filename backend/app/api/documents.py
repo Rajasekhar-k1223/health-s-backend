@@ -92,21 +92,31 @@ def search_documents(
         raise HTTPException(status_code=400, detail="Global search requires a patient_id to enforce tenant isolation")
 
     try:
-        # In a real setup:
-        # model = SentenceTransformer('all-MiniLM-L6-v2')
-        # vector = model.encode([query])[0].tolist()
-        # client = QdrantClient(url=QDRANT_URL)
-        # filter = models.Filter(...) if patient_id else None
-        # hits = client.search(collection_name="medical_documents", query_vector=vector, query_filter=filter, limit=5)
+        from sentence_transformers import SentenceTransformer
+        from qdrant_client import QdrantClient
+        from qdrant_client.http import models
+
+        model = SentenceTransformer('all-MiniLM-L6-v2')
+        vector = model.encode([query])[0].tolist()
+        QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+        client = QdrantClient(url=QDRANT_URL)
         
-        # Simulate results
+        filter_cond = None
+        if patient_id:
+            filter_cond = models.Filter(
+                must=[models.FieldCondition(key="patient_id", match=models.MatchValue(value=patient_id))]
+            )
+            
+        hits = client.search(collection_name="medical_documents", query_vector=vector, query_filter=filter_cond, limit=5)
+        
         return [
             {
-                "document_id": 1,
-                "filename": "Lab_Results.pdf",
-                "chunk_text": "Patient shows elevated glucose levels indicating potential hyperglycemia.",
-                "score": 0.89
+                "document_id": int(hit.id) if str(hit.id).isdigit() else 0, # Depending on how ID was stored
+                "filename": hit.payload.get("filename", "Unknown"),
+                "chunk_text": hit.payload.get("chunk_text", ""),
+                "score": hit.score
             }
+            for hit in hits
         ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

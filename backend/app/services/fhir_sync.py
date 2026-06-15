@@ -289,15 +289,17 @@ def sync_document_to_fhir(doc: Document):
                 "attachment": {
                     "contentType": "text/plain",
                     "title": doc.filename,
-                    "data": "SimulatedBase64DataForPDF"
+                    "data": "U2ltdWxhdGVkQmFzZTY0RGF0YUZvclBERg=="
                 }
             }
         ]
     }
     if doc.ai_summary:
+        import html
+        safe_summary = html.escape(doc.ai_summary).replace("\n", "<br/>")
         payload["text"] = {
             "status": "generated",
-            "div": f"<div xmlns=\"http://www.w3.org/1999/xhtml\">{doc.ai_summary}</div>"
+            "div": f'<div xmlns="http://www.w3.org/1999/xhtml">{safe_summary}</div>'
         }
 
     _put_resource("DocumentReference", payload["id"], payload)

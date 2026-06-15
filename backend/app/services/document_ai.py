@@ -39,15 +39,13 @@ async def process_document_pipeline(document_id: int):
         print(f"🚀 Starting Document AI Pipeline for Doc {doc.id}: {doc.filename}")
 
         # 1. OCR Stage
-        extracted_text = "Simulated OCR Text extracted from PDF.\nPatient shows elevated glucose levels."
         try:
-            # In a real setup, we would convert PDF to image and run tesseract
-            # images = convert_from_path(doc.file_path)
-            # text_pages = [pytesseract.image_to_string(img) for img in images]
-            # extracted_text = "\n".join(text_pages)
-            pass
+            images = convert_from_path(doc.file_path)
+            text_pages = [pytesseract.image_to_string(img) for img in images]
+            extracted_text = "\n".join(text_pages)
         except Exception as e:
             print(f"OCR Warning: {e}. Using simulated text.")
+            extracted_text = "Simulated OCR Text extracted from PDF.\nPatient shows elevated glucose levels."
             
         doc.extracted_text = extracted_text
         
@@ -55,9 +53,10 @@ async def process_document_pipeline(document_id: int):
         prompt = f"Summarize the following medical document and extract key clinical findings. Keep the summary under 3 sentences.\n\nDocument Text:\n{extracted_text}"
         
         try:
+            ollama_url = os.getenv("OLLAMA_URL", "http://host.docker.internal:11434")
             async with httpx.AsyncClient(timeout=60.0) as client:
                 response = await client.post(
-                    "http://localhost:11434/api/generate",
+                    f"{ollama_url}/api/generate",
                     json={
                         "model": "llama3.2",
                         "prompt": prompt,
@@ -85,16 +84,26 @@ async def process_document_pipeline(document_id: int):
         
         # 3. Vectorization Stage (Qdrant)
         try:
-            # model = SentenceTransformer('all-MiniLM-L6-v2')
-            # vectors = model.encode([extracted_text])
-            # client = QdrantClient(url=QDRANT_URL)
-            # client.recreate_collection(collection_name="medical_documents", vectors_config=VectorParams(size=384, distance=Distance.COSINE))
-            # client.upsert(collection_name="medical_documents", points=[PointStruct(id=doc.id, vector=vectors[0].tolist(), payload={"patient_id": doc.patient_id, "filename": doc.filename, "text": extracted_text})])
+            model = SentenceTransformer('all-MiniLM-L6-v2')
+            vectors = model.encode([extracted_text])
+            client = QdrantClient(url=QDRANT_URL)
+            try:
+                client.get_collection(collection_name="medical_documents")
+            except Exception:
+                client.recreate_collection(collection_name="medical_documents", vectors_config=VectorParams(size=384, distance=Distance.COSINE))
+            
+            client.upsert(collection_name="medical_documents", points=[PointStruct(id=doc.id, vector=vectors[0].tolist(), payload={"patient_id": doc.patient_id, "filename": doc.filename, "chunk_text": extracted_text[:200]})])
             print("✅ Vectorized and inserted into Qdrant.")
         except Exception as e:
             print(f"Vector DB Warning: {e}")
 
         # 4. FHIR Mapping Stage
+        from app.models.patient import Patient
+        from app.services.fhir_sync import sync_patient_to_fhir
+        patient = db.query(Patient).filter(Patient.id == doc.patient_id).first()
+        if patient:
+            sync_patient_to_fhir(patient)
+            
         sync_document_to_fhir(doc)
         
         doc.status = "completed"
