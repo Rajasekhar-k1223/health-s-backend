@@ -58,6 +58,9 @@ async def upload_document(
     # Queue the heavy AI pipeline
     background_tasks.add_task(process_document_pipeline, doc.id)
     
+    from app.services.fhir_sync import sync_document_reference
+    background_tasks.add_task(sync_document_reference, doc.id, patient_id, doc.document_type, doc.status, doc.filename)
+    
     return doc
 
 @router.get("/patient/{patient_id}", response_model=List[DocumentResponse])
@@ -120,3 +123,39 @@ def search_documents(
         ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+from pydantic import BaseModel
+class QuestionnaireSubmit(BaseModel):
+    patient_id: int
+    questionnaire_name: str
+    answers: dict
+
+@router.post("/questionnaire")
+def submit_questionnaire(
+    qr_in: QuestionnaireSubmit,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.hospital_admin, RoleEnum.doctor, RoleEnum.nurse, RoleEnum.patient]))
+):
+    from app.models.questionnaire_response import QuestionnaireResponse
+    
+    # Enforce Multi-Tenant Data Governance
+    if current_user.role != RoleEnum.super_admin:
+        patient = db.query(Patient).filter(Patient.id == qr_in.patient_id).first()
+        if not patient or patient.organization_id != current_user.organization_id:
+            raise HTTPException(status_code=403, detail="Patient does not belong to your organization")
+            
+    qr = QuestionnaireResponse(
+        patient_id=qr_in.patient_id,
+        questionnaire_name=qr_in.questionnaire_name,
+        answers=qr_in.answers,
+        status="completed"
+    )
+    db.add(qr)
+    db.commit()
+    db.refresh(qr)
+    
+    from app.services.fhir_sync import sync_questionnaire_response
+    background_tasks.add_task(sync_questionnaire_response, qr.id, qr.patient_id, qr.questionnaire_name, qr.status, qr.answers)
+    
+    return {"id": qr.id, "status": "submitted"}

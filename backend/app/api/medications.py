@@ -28,3 +28,41 @@ def get_medication_adherence(
             ["Amlodipine", 112, 85]
         ]
     }
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+from app.core.database import get_db
+from fastapi import BackgroundTasks, HTTPException
+from app.models.patient import Patient
+
+class MedAdminCreate(BaseModel):
+    patient_id: int
+    medication_name: str
+    dosage: str
+    status: str = "completed"
+    notes: str = None
+
+@router.post("/administrations")
+def create_medication_administration(
+    admin_in: MedAdminCreate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role([RoleEnum.doctor, RoleEnum.nurse]))
+):
+    from app.models.medication_administration import MedicationAdministration
+    patient = db.query(Patient).filter(Patient.id == admin_in.patient_id).first()
+    if not patient: raise HTTPException(status_code=404, detail="Patient not found")
+        
+    med_admin = MedicationAdministration(
+        patient_id=admin_in.patient_id,
+        medication_name=admin_in.medication_name,
+        dosage=admin_in.dosage,
+        status=admin_in.status,
+        notes=admin_in.notes
+    )
+    db.add(med_admin)
+    db.commit()
+    db.refresh(med_admin)
+    
+    from app.services.fhir_sync import sync_medication_administration
+    background_tasks.add_task(sync_medication_administration, med_admin.id, med_admin.patient_id, med_admin.medication_name, med_admin.status, med_admin.dosage)
+    return med_admin

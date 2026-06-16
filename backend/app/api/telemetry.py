@@ -46,23 +46,37 @@ def process_and_store_telemetry(payload: TelemetryIngest, patient_id: Optional[i
     """Background task to store telemetry to Timeseries DB (MongoDB)."""
     if not telemetry_collection:
         print(f"[MOCK TSDB] Stored Telemetry for {payload.device_id} (Patient {patient_id}) - {len(payload.metrics)} metrics")
-        return
+    else:
+        documents = []
+        for metric in payload.metrics:
+            doc = {
+                "device_id": payload.device_id,
+                "patient_id": patient_id,
+                "timestamp": payload.timestamp,
+                "type": metric.type,
+                "value": metric.value,
+                "unit": metric.unit
+            }
+            documents.append(doc)
+            
+        if documents:
+            try:
+                telemetry_collection.insert_many(documents)
+                print(f"Stored {len(documents)} telemetry points to MongoDB for Device {payload.device_id}")
+            except Exception as e:
+                print(f"❌ Failed to insert telemetry into MongoDB: {e}")
+                print(f"[FALLBACK TSDB] Telemetry logged for {payload.device_id} (Patient {patient_id}) without MongoDB persistence")
         
-    documents = []
-    for metric in payload.metrics:
-        doc = {
-            "device_id": payload.device_id,
-            "patient_id": patient_id,
-            "timestamp": payload.timestamp,
-            "type": metric.type,
-            "value": metric.value,
-            "unit": metric.unit
-        }
-        documents.append(doc)
-        
-    if documents:
-        telemetry_collection.insert_many(documents)
-        print(f"Stored {len(documents)} telemetry points to MongoDB for Device {payload.device_id}")
+    if patient_id:
+        try:
+            from app.services.fhir_sync import sync_observation_to_fhir
+            for metric in payload.metrics:
+                # We skip ECG raw waveforms to prevent FHIR server bloat
+                if metric.type == "ECG":
+                    continue
+                sync_observation_to_fhir(payload.device_id, patient_id, metric.type, metric.value, metric.unit)
+        except Exception as e:
+            print(f"🚨 Background FHIR observation sync failed: {e}")
 
 @router.post("/ingest")
 def ingest_telemetry(

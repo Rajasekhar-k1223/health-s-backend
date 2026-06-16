@@ -26,3 +26,13 @@ class Patient(Base):
     ward = relationship("Ward", back_populates="patients")
     care_team = relationship("CareTeam", backref="patient")
     medical_history = relationship("MedicalHistory", back_populates="patient", cascade="all, delete-orphan")
+    
+    primary_doctor = relationship("User", foreign_keys=[primary_doctor_id])
+    prescriptions = relationship("Prescription", back_populates="patient", cascade="all, delete-orphan")
+    encounters = relationship("Encounter", back_populates="patient", cascade="all, delete-orphan")
+    # Using string reference for Task to avoid circular import if task isn't imported
+    tasks = relationship("Task", back_populates="patient", cascade="all, delete-orphan")
+    
+    immunizations = relationship("Immunization", back_populates="patient", cascade="all, delete-orphan")
+    family_histories = relationship("FamilyHistory", back_populates="patient", cascade="all, delete-orphan")
+    procedures = relationship("Procedure", back_populates="patient", cascade="all, delete-orphan")

@@ -13,9 +13,13 @@ from app.schemas.device import DeviceCreate, DeviceUpdate, DeviceResponse, Devic
 
 router = APIRouter(prefix="/devices", tags=["devices"])
 
+from app.services.fhir_sync import sync_device_to_fhir
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+
 @router.post("/", response_model=DeviceResponse)
 def register_device(
     device_in: DeviceCreate, 
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.hospital_admin]))
 ):
@@ -32,6 +36,8 @@ def register_device(
     db.add(new_device)
     db.commit()
     db.refresh(new_device)
+    
+    background_tasks.add_task(sync_device_to_fhir, new_device)
     return new_device
 
 @router.get("/", response_model=List[DeviceResponse])

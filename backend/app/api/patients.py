@@ -103,6 +103,7 @@ def update_patient(
 def add_medical_history(
     patient_id: int,
     history_in: MedicalHistoryCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user = Depends(require_role([RoleEnum.doctor, RoleEnum.nurse]))
 ):
@@ -114,6 +115,10 @@ def add_medical_history(
     db.add(new_history)
     db.commit()
     db.refresh(new_history)
+    
+    from app.services.fhir_sync import sync_condition
+    background_tasks.add_task(sync_condition, new_history.id, patient_id, new_history.condition, new_history.status.value)
+    
     return new_history
 
 @router.get("/{patient_id}/history", response_model=List[MedicalHistoryResponse])
@@ -186,3 +191,136 @@ def get_patient_360(
             {"date": "2023-10-26T10:00:00Z", "type": "VitalsAlert", "description": "Heart rate spiked to 110 BPM. Resolved."}
         ]
     }
+
+from pydantic import BaseModel
+class ConsentCreate(BaseModel):
+    category: str = "hipaa-notice"
+    policy_rule: str = "http://sentinel-health.os/privacy-policy"
+    provision_type: str = "permit"
+
+@router.post("/{patient_id}/consent")
+def create_patient_consent(
+    patient_id: int,
+    consent_in: ConsentCreate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.hospital_admin, RoleEnum.patient]))
+):
+    from app.models.consent import Consent
+    
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+        
+    consent = Consent(
+        patient_id=patient_id,
+        organization_id=patient.organization_id,
+        category=consent_in.category,
+        policy_rule=consent_in.policy_rule,
+        provision_type=consent_in.provision_type
+    )
+    db.add(consent)
+    db.commit()
+    db.refresh(consent)
+    
+    from app.services.fhir_sync import sync_consent
+    background_tasks.add_task(sync_consent, consent.id, patient_id, consent.organization_id, consent.status.value, consent.provision_type)
+    
+    return consent
+
+class ImmunizationCreate(BaseModel):
+    vaccine_code: str
+    vaccine_name: str
+    status: str = "completed"
+    notes: str = None
+
+@router.post("/{patient_id}/immunizations")
+def create_patient_immunization(
+    patient_id: int,
+    imm_in: ImmunizationCreate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role([RoleEnum.doctor, RoleEnum.nurse]))
+):
+    from app.models.immunization import Immunization
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    if not patient: raise HTTPException(status_code=404, detail="Patient not found")
+        
+    imm = Immunization(
+        patient_id=patient_id,
+        vaccine_code=imm_in.vaccine_code,
+        vaccine_name=imm_in.vaccine_name,
+        status=imm_in.status,
+        notes=imm_in.notes
+    )
+    db.add(imm)
+    db.commit()
+    db.refresh(imm)
+    
+    from app.services.fhir_sync import sync_immunization
+    background_tasks.add_task(sync_immunization, imm.id, patient_id, imm.vaccine_code, imm.vaccine_name, imm.status)
+    return imm
+
+class FamilyHistoryCreate(BaseModel):
+    relationship_code: str
+    condition_name: str
+    notes: str = None
+
+@router.post("/{patient_id}/family-history")
+def create_patient_family_history(
+    patient_id: int,
+    fh_in: FamilyHistoryCreate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role([RoleEnum.doctor, RoleEnum.nurse]))
+):
+    from app.models.family_history import FamilyHistory
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    if not patient: raise HTTPException(status_code=404, detail="Patient not found")
+        
+    fh = FamilyHistory(
+        patient_id=patient_id,
+        relationship_code=fh_in.relationship_code,
+        condition_name=fh_in.condition_name,
+        notes=fh_in.notes
+    )
+    db.add(fh)
+    db.commit()
+    db.refresh(fh)
+    
+    from app.services.fhir_sync import sync_family_history
+    background_tasks.add_task(sync_family_history, fh.id, patient_id, fh.relationship_code, fh.condition_name)
+    return fh
+
+class ProcedureCreate(BaseModel):
+    procedure_code: str
+    procedure_name: str
+    status: str = "completed"
+    notes: str = None
+
+@router.post("/{patient_id}/procedures")
+def create_patient_procedure(
+    patient_id: int,
+    proc_in: ProcedureCreate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role([RoleEnum.doctor, RoleEnum.nurse]))
+):
+    from app.models.procedure import Procedure
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
+    if not patient: raise HTTPException(status_code=404, detail="Patient not found")
+        
+    proc = Procedure(
+        patient_id=patient_id,
+        procedure_code=proc_in.procedure_code,
+        procedure_name=proc_in.procedure_name,
+        status=proc_in.status,
+        notes=proc_in.notes
+    )
+    db.add(proc)
+    db.commit()
+    db.refresh(proc)
+    
+    from app.services.fhir_sync import sync_procedure
+    background_tasks.add_task(sync_procedure, proc.id, patient_id, proc.procedure_code, proc.procedure_name, proc.status)
+    return proc

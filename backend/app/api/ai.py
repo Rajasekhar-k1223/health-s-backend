@@ -11,9 +11,12 @@ from app.schemas.ai import InsightCreate, InsightResponse, NoteCreate, NoteRespo
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
+from fastapi import BackgroundTasks
+
 @router.post("/insights", response_model=InsightResponse)
 def create_insight(
     insight_in: InsightCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
     # Internally called by AI service, in production would need service auth
 ):
@@ -21,6 +24,10 @@ def create_insight(
     db.add(new_insight)
     db.commit()
     db.refresh(new_insight)
+    
+    from app.services.fhir_sync import sync_risk_assessment
+    background_tasks.add_task(sync_risk_assessment, new_insight.id, new_insight.patient_id, new_insight.summary)
+    
     return new_insight
 
 @router.get("/patient-insights/{patient_id}", response_model=List[InsightResponse])
@@ -82,6 +89,7 @@ def get_patient_summary(
 def update_patient_priority(
     patient_id: int,
     priority: str,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.doctor]))
 ):
@@ -90,4 +98,9 @@ def update_patient_priority(
         raise HTTPException(status_code=404, detail="Patient not found")
     patient.priority = priority
     db.commit()
+    
+    from app.services.fhir_sync import sync_measure_report
+    # Score is 1 for testing MeasureReport
+    background_tasks.add_task(sync_measure_report, patient.id, patient.id, 1, priority)
+    
     return {"status": "success", "priority": priority}

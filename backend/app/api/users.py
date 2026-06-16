@@ -77,9 +77,13 @@ def list_users(
     return query.offset(skip).limit(limit).all()
 
 
+from app.services.fhir_sync import sync_practitioner
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+
 @router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def create_user(
     user_in: UserCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role([RoleEnum.super_admin, RoleEnum.hospital_admin]))
 ):
@@ -95,6 +99,10 @@ def create_user(
     db.add(user)
     db.commit()
     db.refresh(user)
+    
+    if user.role in [RoleEnum.doctor, RoleEnum.nurse]:
+        background_tasks.add_task(sync_practitioner, user.id)
+        
     return user
 
 

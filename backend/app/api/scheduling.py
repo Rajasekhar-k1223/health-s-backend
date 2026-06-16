@@ -24,9 +24,13 @@ class AppointmentCreate(BaseModel):
     type: str = "IN_PERSON"
     notes: str = None
 
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from app.services.fhir_sync import sync_schedule, sync_appointment
+
 @router.post("/schedules")
 def create_schedule(
     sched: ScheduleCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.hospital_admin, RoleEnum.doctor]))
 ):
@@ -34,11 +38,13 @@ def create_schedule(
     db.add(db_sched)
     db.commit()
     db.refresh(db_sched)
+    background_tasks.add_task(sync_schedule, db_sched.id, db_sched.provider_id)
     return db_sched
 
 @router.post("/appointments")
 def book_appointment(
     appt: AppointmentCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.hospital_admin, RoleEnum.nurse]))
 ):
@@ -46,6 +52,7 @@ def book_appointment(
     db.add(db_appt)
     db.commit()
     db.refresh(db_appt)
+    background_tasks.add_task(sync_appointment, db_appt.id, db_appt.patient_id, db_appt.provider_id)
     return db_appt
 
 @router.get("/appointments/all")

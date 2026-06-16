@@ -38,6 +38,20 @@ class AuditMiddleware(BaseHTTPMiddleware):
                 )
                 db.add(log)
                 db.commit()
+                db.refresh(log)
+                
+                # Fetch user id for FHIR
+                from app.models.user import User
+                user_id = 1
+                user = db.query(User).filter(User.username == username).first()
+                if user:
+                    user_id = user.id
+                    
+                import threading
+                from app.services.fhir_sync import sync_audit_event
+                outcome = "Success" if response.status_code < 400 else "Failure"
+                threading.Thread(target=sync_audit_event, args=(log.id, method, user_id, outcome)).start()
+                
             except Exception as e:
                 print(f"Audit log error: {e}")
             finally:

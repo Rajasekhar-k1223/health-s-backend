@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from typing import Optional, List
-from datetime import date
+from datetime import date, datetime
 
 class MedicalHistoryBase(BaseModel):
     condition: str
@@ -14,6 +14,39 @@ class MedicalHistoryCreate(MedicalHistoryBase):
 class MedicalHistoryResponse(MedicalHistoryBase):
     id: int
     patient_id: int
+
+    class Config:
+        from_attributes = True
+
+class ImmunizationResponse(BaseModel):
+    id: int
+    patient_id: int
+    vaccine_code: str
+    vaccine_name: str
+    administered_date: datetime
+    status: str
+    notes: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+class FamilyHistoryResponse(BaseModel):
+    id: int
+    patient_id: int
+    relationship_code: str
+    condition_name: str
+    notes: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+class ProcedureResponse(BaseModel):
+    id: int
+    patient_id: int
+    procedure_code: str
+    procedure_name: str
+    status: str
+    notes: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -39,6 +72,9 @@ class PatientResponse(PatientBase):
     id: int
     risk_score: float
     medical_history: List[MedicalHistoryResponse] = []
+    immunizations: List[ImmunizationResponse] = []
+    family_histories: List[FamilyHistoryResponse] = []
+    procedures: List[ProcedureResponse] = []
 
     class Config:
         from_attributes = True

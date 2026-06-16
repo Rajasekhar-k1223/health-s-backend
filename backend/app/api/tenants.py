@@ -21,10 +21,14 @@ class LocationCreate(BaseModel):
     address: str = None
     type: str = "CLINIC"
 
+from app.services.fhir_sync import sync_organization, sync_location
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+
 # Endpoints
 @router.post("/organizations")
 def create_organization(
     org: OrganizationCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user = Depends(require_role([RoleEnum.super_admin]))
 ):
@@ -32,6 +36,7 @@ def create_organization(
     db.add(db_org)
     db.commit()
     db.refresh(db_org)
+    background_tasks.add_task(sync_organization, db_org.id, db_org.name)
     return db_org
 
 @router.get("/organizations")
@@ -44,6 +49,7 @@ def list_organizations(
 @router.post("/locations")
 def create_location(
     loc: LocationCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.hospital_admin]))
 ):
@@ -51,6 +57,7 @@ def create_location(
     db.add(db_loc)
     db.commit()
     db.refresh(db_loc)
+    background_tasks.add_task(sync_location, db_loc.id, db_loc.name, db_loc.organization_id)
     return db_loc
 
 @router.get("/organizations/{org_id}/locations")

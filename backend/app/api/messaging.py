@@ -68,3 +68,40 @@ def create_thread(
     MOCK_THREADS.insert(0, new_thread)
     MOCK_MESSAGES[new_thread["id"]] = [{ "from": "You", "body": payload.get("body", ""), "time": "now", "self": True }]
     return new_thread
+
+import requests
+from pydantic import BaseModel
+FHIR_URL = "http://localhost:8080/fhir"
+
+class MaterialDelivery(BaseModel):
+    patient_id: int
+    material_title: str
+    delivery_method: str # "sms" or "portal"
+
+@router.post("/send-material")
+def send_patient_material(
+    payload: MaterialDelivery,
+    current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.hospital_admin, RoleEnum.doctor, RoleEnum.nurse]))
+):
+    # Mock Twilio/Portal delivery
+    print(f"Mocking {payload.delivery_method} delivery to patient {payload.patient_id}: {payload.material_title}")
+
+    # FHIR CommunicationRequest
+    fhir_payload = {
+        "resourceType": "CommunicationRequest",
+        "status": "active",
+        "subject": { "reference": f"Patient/patient-{payload.patient_id}" },
+        "requester": { "reference": f"Practitioner/user-{current_user.id}" },
+        "payload": [
+            { "contentString": f"Educational Material Sent: {payload.material_title} via {payload.delivery_method}" }
+        ],
+        "authoredOn": datetime.utcnow().isoformat() + "Z"
+    }
+
+    try:
+        response = requests.post(f"{FHIR_URL}/CommunicationRequest", json=fhir_payload, headers={"Content-Type": "application/fhir+json"})
+        response.raise_for_status()
+        return {"message": f"Material sent via {payload.delivery_method} and logged to FHIR"}
+    except Exception as e:
+        # Ignore for mock purposes if FHIR is down
+        return {"message": f"Material sent via {payload.delivery_method}. (FHIR sync bypassed)"}

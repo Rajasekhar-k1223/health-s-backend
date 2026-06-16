@@ -159,6 +159,212 @@ def sync_clinical_impression(imp_id: int, patient_id: int, summary: str):
     }
     _put_resource("ClinicalImpression", payload["id"], payload)
 
+def sync_consent(consent_id: int, patient_id: int, org_id: int, status: str, provision_type: str):
+    payload = {
+        "resourceType": "Consent",
+        "id": f"consent-{consent_id}",
+        "status": status,
+        "scope": {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/consentscope", "code": "patient-privacy"}]},
+        "category": [{"coding": [{"system": "http://terminology.hl7.org/CodeSystem/consentcategorycodes", "code": "npp"}]}],
+        "patient": {"reference": f"Patient/patient-{patient_id}"},
+        "dateTime": datetime.datetime.utcnow().isoformat() + "Z",
+        "organization": [{"reference": f"Organization/org-{org_id}"}] if org_id else [],
+        "provision": {"type": provision_type}
+    }
+    _put_resource("Consent", payload["id"], payload)
+
+def sync_audit_event(audit_id: int, action: str, user_id: int, outcome: str):
+    payload = {
+        "resourceType": "AuditEvent",
+        "id": f"audit-{audit_id}",
+        "type": {"system": "http://terminology.hl7.org/CodeSystem/audit-event-type", "code": "rest"},
+        "action": action[:1].upper() if action else "E",
+        "recorded": datetime.datetime.utcnow().isoformat() + "Z",
+        "outcome": "0" if outcome == "Success" else "4",
+        "agent": [{"requestor": True, "who": {"reference": f"Practitioner/doctor-{user_id}"}}],
+        "source": {"observer": {"display": "Sentinel HealthOS"}}
+    }
+    _put_resource("AuditEvent", payload["id"], payload)
+
+def sync_condition(condition_id: int, patient_id: int, code: str, status: str):
+    status_map = {"active": "active", "resolved": "resolved"}
+    payload = {
+        "resourceType": "Condition",
+        "id": f"condition-{condition_id}",
+        "clinicalStatus": {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/condition-clinical", "code": status_map.get(status, "active")}]},
+        "code": {"text": code},
+        "subject": {"reference": f"Patient/patient-{patient_id}"},
+        "recordedDate": datetime.datetime.utcnow().isoformat() + "Z"
+    }
+    _put_resource("Condition", payload["id"], payload)
+
+def sync_diagnostic_report(report_id: int, patient_id: int, test_name: str, result_value: str, conclusion: str):
+    payload = {
+        "resourceType": "DiagnosticReport",
+        "id": f"report-{report_id}",
+        "status": "final",
+        "code": {"text": test_name},
+        "subject": {"reference": f"Patient/patient-{patient_id}"},
+        "issued": datetime.datetime.utcnow().isoformat() + "Z",
+        "conclusion": conclusion,
+        "presentedForm": [{"contentType": "text/plain", "data": "TUlTS0VORzEwMTEx"}] # Mock base64
+    }
+    _put_resource("DiagnosticReport", payload["id"], payload)
+
+def sync_coverage(coverage_id: int, patient_id: int, status: str, payor: str, subscriber_id: str):
+    payload = {
+        "resourceType": "Coverage",
+        "id": f"coverage-{coverage_id}",
+        "status": status,
+        "subscriberId": subscriber_id,
+        "beneficiary": {"reference": f"Patient/patient-{patient_id}"},
+        "payor": [{"reference": f"Organization/{payor}"}]
+    }
+    _put_resource("Coverage", payload["id"], payload)
+
+def sync_explanation_of_benefit(eob_id: int, claim_id: int, patient_id: int, provider_id: int, outcome: str, total_cost: float, total_benefit: float):
+    payload = {
+        "resourceType": "ExplanationOfBenefit",
+        "id": f"eob-{eob_id}",
+        "status": "active",
+        "type": {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/claim-type", "code": "institutional"}]},
+        "use": "claim",
+        "patient": {"reference": f"Patient/patient-{patient_id}"},
+        "created": datetime.datetime.utcnow().isoformat() + "Z",
+        "provider": {"reference": f"Practitioner/doctor-{provider_id}"},
+        "insurer": {"reference": "Organization/org-default"},
+        "outcome": outcome,
+        "claim": {"reference": f"Claim/claim-{claim_id}"},
+        "total": [
+            {"category": {"coding": [{"code": "submitted"}]}, "amount": {"value": total_cost, "currency": "USD"}},
+            {"category": {"coding": [{"code": "benefit"}]}, "amount": {"value": total_benefit, "currency": "USD"}}
+        ]
+    }
+    _put_resource("ExplanationOfBenefit", payload["id"], payload)
+
+def sync_measure_report(report_id: int, patient_id: int, score: int, priority: str):
+    payload = {
+        "resourceType": "MeasureReport",
+        "id": f"measure-{report_id}",
+        "status": "complete",
+        "type": "individual",
+        "measure": "http://sentinel-health.os/measure/risk-scoring",
+        "subject": {"reference": f"Patient/patient-{patient_id}"},
+        "date": datetime.datetime.utcnow().isoformat() + "Z",
+        "group": [
+            {
+                "measureScore": {"value": score},
+                "code": {"text": f"Priority: {priority}"}
+            }
+        ]
+    }
+    _put_resource("MeasureReport", payload["id"], payload)
+
+    _put_resource("MeasureReport", payload["id"], payload)
+
+def sync_immunization(imm_id: int, patient_id: int, vaccine_code: str, vaccine_name: str, status: str):
+    payload = {
+        "resourceType": "Immunization",
+        "id": f"imm-{imm_id}",
+        "status": status,
+        "vaccineCode": {"coding": [{"code": vaccine_code, "display": vaccine_name}]},
+        "patient": {"reference": f"Patient/patient-{patient_id}"},
+        "occurrenceDateTime": datetime.datetime.utcnow().isoformat() + "Z",
+        "primarySource": True
+    }
+    _put_resource("Immunization", payload["id"], payload)
+
+def sync_family_history(fmh_id: int, patient_id: int, relationship_code: str, condition_name: str):
+    payload = {
+        "resourceType": "FamilyMemberHistory",
+        "id": f"fmh-{fmh_id}",
+        "status": "completed",
+        "patient": {"reference": f"Patient/patient-{patient_id}"},
+        "date": datetime.datetime.utcnow().isoformat() + "Z",
+        "relationship": {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/v3-RoleCode", "code": relationship_code}]},
+        "condition": [{"code": {"coding": [{"display": condition_name}]}}]
+    }
+    _put_resource("FamilyMemberHistory", payload["id"], payload)
+
+def sync_procedure(proc_id: int, patient_id: int, proc_code: str, proc_name: str, status: str):
+    payload = {
+        "resourceType": "Procedure",
+        "id": f"proc-{proc_id}",
+        "status": status,
+        "code": {"coding": [{"code": proc_code, "display": proc_name}]},
+        "subject": {"reference": f"Patient/patient-{patient_id}"},
+        "performedDateTime": datetime.datetime.utcnow().isoformat() + "Z"
+    }
+    _put_resource("Procedure", payload["id"], payload)
+
+    _put_resource("Procedure", payload["id"], payload)
+
+def sync_medication_administration(med_admin_id: int, patient_id: int, medication_name: str, status: str, dosage: str):
+    payload = {
+        "resourceType": "MedicationAdministration",
+        "id": f"medadmin-{med_admin_id}",
+        "status": status,
+        "medicationCodeableConcept": {"coding": [{"display": medication_name}]},
+        "subject": {"reference": f"Patient/patient-{patient_id}"},
+        "effectiveDateTime": datetime.datetime.utcnow().isoformat() + "Z",
+        "dosage": {"text": dosage}
+    }
+    _put_resource("MedicationAdministration", payload["id"], payload)
+
+def sync_medication_dispense(med_dispense_id: int, patient_id: int, medication_name: str, status: str, quantity: str, days_supply: int):
+    payload = {
+        "resourceType": "MedicationDispense",
+        "id": f"meddispense-{med_dispense_id}",
+        "status": status,
+        "medicationCodeableConcept": {"coding": [{"display": medication_name}]},
+        "subject": {"reference": f"Patient/patient-{patient_id}"},
+        "quantity": {"value": float(quantity.split()[0]) if quantity and quantity.split()[0].isdigit() else 1},
+        "daysSupply": {"value": days_supply},
+        "whenHandedOver": datetime.datetime.utcnow().isoformat() + "Z"
+    }
+    _put_resource("MedicationDispense", payload["id"], payload)
+
+    _put_resource("MedicationDispense", payload["id"], payload)
+
+def sync_questionnaire_response(qr_id: int, patient_id: int, questionnaire_name: str, status: str, answers: dict):
+    payload = {
+        "resourceType": "QuestionnaireResponse",
+        "id": f"qr-{qr_id}",
+        "status": status,
+        "subject": {"reference": f"Patient/patient-{patient_id}"},
+        "authored": datetime.datetime.utcnow().isoformat() + "Z",
+        "questionnaire": f"Questionnaire/{questionnaire_name}",
+        "item": [{"linkId": str(k), "answer": [{"valueString": str(v)}]} for k, v in answers.items()]
+    }
+    _put_resource("QuestionnaireResponse", payload["id"], payload)
+
+def sync_document_reference(doc_id: int, patient_id: int, document_type: str, status: str, filename: str):
+    payload = {
+        "resourceType": "DocumentReference",
+        "id": f"doc-{doc_id}",
+        "status": "current" if status == "processing" or status == "completed" else "entered-in-error",
+        "docStatus": "final",
+        "type": {"coding": [{"display": document_type or "Medical Document"}]},
+        "subject": {"reference": f"Patient/patient-{patient_id}"},
+        "date": datetime.datetime.utcnow().isoformat() + "Z",
+        "content": [{"attachment": {"title": filename}}]
+    }
+    _put_resource("DocumentReference", payload["id"], payload)
+
+    _put_resource("DocumentReference", payload["id"], payload)
+
+def sync_plan_definition(pd_id: int, patient_id: int, title: str, description: str, status: str):
+    payload = {
+        "resourceType": "PlanDefinition",
+        "id": f"pd-{pd_id}",
+        "url": f"http://sentinel-health.os/PlanDefinition/pd-{pd_id}",
+        "status": status,
+        "title": title,
+        "description": description,
+        "subjectCodeableConcept": {"coding": [{"code": f"Patient/patient-{patient_id}"}]}
+    }
+    _put_resource("PlanDefinition", payload["id"], payload)
+
 # ==============================================================================
 # EXISTING FHIR MAPPINGS
 # ==============================================================================
