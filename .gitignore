@@ -15,3 +15,5 @@ backend/scripts/*.csv
 backend/scripts/*.json
 backend/scripts/mongo_data/
 backend/scripts/mysql_data/
+
+demo-data-generator/
