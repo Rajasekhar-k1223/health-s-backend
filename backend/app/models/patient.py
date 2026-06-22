@@ -22,17 +22,16 @@ class Patient(Base):
     ward_id = Column(Integer, ForeignKey("wards.id"), nullable=True)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True)
 
-    devices = relationship("Device", back_populates="patient")
-    ward = relationship("Ward", back_populates="patients")
-    care_team = relationship("CareTeam", backref="patient")
-    medical_history = relationship("MedicalHistory", back_populates="patient", cascade="all, delete-orphan")
+    devices = relationship("app.models.device.Device", back_populates="patient")
+    ward = relationship("app.models.ward.Ward", back_populates="patients")
+    care_team = relationship("app.models.care_team.CareTeam", backref="patient")
+    medical_history = relationship("app.models.medical_history.MedicalHistory", back_populates="patient", cascade="all, delete-orphan")
     
-    primary_doctor = relationship("User", foreign_keys=[primary_doctor_id])
-    prescriptions = relationship("Prescription", back_populates="patient", cascade="all, delete-orphan")
-    encounters = relationship("Encounter", back_populates="patient", cascade="all, delete-orphan")
-    # Using string reference for Task to avoid circular import if task isn't imported
+    primary_doctor = relationship("app.models.user.User", foreign_keys=[primary_doctor_id])
+    prescriptions = relationship("app.models.prescription.Prescription", back_populates="patient", cascade="all, delete-orphan")
+    encounters = relationship("app.models.encounter.Encounter", back_populates="patient", cascade="all, delete-orphan")
     tasks = relationship("Task", back_populates="patient", cascade="all, delete-orphan")
     
-    immunizations = relationship("Immunization", back_populates="patient", cascade="all, delete-orphan")
-    family_histories = relationship("FamilyHistory", back_populates="patient", cascade="all, delete-orphan")
-    procedures = relationship("Procedure", back_populates="patient", cascade="all, delete-orphan")
+    immunizations = relationship("app.models.immunization.Immunization", back_populates="patient", cascade="all, delete-orphan")
+    family_histories = relationship("app.models.family_history.FamilyHistory", back_populates="patient", cascade="all, delete-orphan")
+    procedures = relationship("app.models.procedure.Procedure", back_populates="patient", cascade="all, delete-orphan")

@@ -1,47 +1,10 @@
 version: '3.8'
 
 services:
-  mysql:
-    image: mysql:8.0
-    container_name: sentinel_mysql
-    environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: sentinel
-      MYSQL_USER: sentinel_user
-      MYSQL_PASSWORD: sentinel_password
-    ports:
-      - "3306:3306"
-    volumes:
-      - mysql_data:/var/lib/mysql
-    networks:
-      - sentinel-net
-
-  mongodb:
-    image: mongo:6.0
-    container_name: sentinel_mongodb
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: rootpassword
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongodb_data:/data/db
-    networks:
-      - sentinel-net
-
-  redis:
-    image: redis:7.0-alpine
-    container_name: sentinel_redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    networks:
-      - sentinel-net
-
   hapi-fhir:
     image: hapiproject/hapi:latest
     container_name: sentinel_fhir
+    user: root
     ports:
       - "8080:8080"
     environment:
@@ -50,33 +13,7 @@ services:
     volumes:
       - fhir_data:/data/hapi
     networks:
-      - sentinel-net
-
-  qdrant:
-    image: qdrant/qdrant:latest
-    container_name: sentinel_qdrant
-    ports:
-      - "6333:6333"
-      - "6334:6334"
-    volumes:
-      - qdrant_data:/qdrant/storage
-    networks:
-      - sentinel-net
-
-  minio:
-    image: minio/minio:latest
-    container_name: sentinel_minio
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    volumes:
-      - minio_data:/data
-    networks:
-      - sentinel-net
+      - shared-db-net
 
   ollama:
     image: ollama/ollama
@@ -86,7 +23,7 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     networks:
-      - sentinel-net
+      - shared-db-net
 
   nginx:
     image: nginx:alpine
@@ -100,18 +37,15 @@ services:
     depends_on:
       - backend
     networks:
-      - sentinel-net
+      - shared-db-net
 
   whisper-service:
     build: ./whisper-service
     container_name: sentinel_whisper
-    depends_on:
-      - redis
     networks:
-      - sentinel-net
+      - shared-db-net
     volumes:
       - audio_data:/app/audio_data
-
 
   backend:
     build: ./backend
@@ -119,27 +53,20 @@ services:
     restart: always
     ports:
       - "8000:8000"
-    depends_on:
-      - mysql
-      - mongodb
-      - redis
     env_file:
       - .env
     networks:
-      - sentinel-net
+      - shared-db-net
     volumes:
       - audio_data:/app/audio_data
 
   ai-service:
     build: ./ai-service
     container_name: sentinel_ai
-    depends_on:
-      - redis
-      - mysql
     env_file:
       - .env
     networks:
-      - sentinel-net
+      - shared-db-net
 
   frontend:
     build: ./sentinel-core-health
@@ -151,21 +78,17 @@ services:
     env_file:
       - .env
     networks:
-      - sentinel-net
+      - shared-db-net
     volumes:
       - ./sentinel-core-health:/app
       - /app/node_modules
 
 volumes:
-  mysql_data:
-  mongodb_data:
-  redis_data:
   fhir_data:
-  qdrant_data:
-  minio_data:
   ollama_data:
   audio_data:
 
 networks:
-  sentinel-net:
-    driver: bridge
+  shared-db-net:
+    external: true
+    name: shared-db-net

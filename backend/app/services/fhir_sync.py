@@ -1,7 +1,11 @@
 import os
 import requests
 import datetime
+import threading
 from typing import Optional, Dict, Any
+
+_synced_practitioners = set()
+_synced_practitioners_lock = threading.Lock()
 
 from app.models.patient import Patient
 from app.models.device import Device
@@ -17,7 +21,7 @@ def _put_resource(resource_type: str, resource_id: str, payload: dict) -> bool:
             print(f"✅ Synced {resource_type}/{resource_id} to FHIR.")
             return True
         else:
-            print(f"❌ Failed FHIR Sync {resource_type}/{resource_id}. {response.status_code}")
+            print(f"❌ Failed FHIR Sync {resource_type}/{resource_id}. {response.status_code} - {response.text}")
             return False
     except Exception as e:
         print(f"🚨 FHIR Connection Error for {resource_type}/{resource_id}: {str(e)}")
@@ -174,11 +178,25 @@ def sync_consent(consent_id: int, patient_id: int, org_id: int, status: str, pro
     _put_resource("Consent", payload["id"], payload)
 
 def sync_audit_event(audit_id: int, action: str, user_id: int, outcome: str):
+    action_upper = (action or "").upper()
+    fhir_action = "E"
+    if action_upper == "GET":
+        fhir_action = "R"
+    elif action_upper == "POST":
+        fhir_action = "C"
+    elif action_upper in ["PUT", "PATCH"]:
+        fhir_action = "U"
+    elif action_upper == "DELETE":
+        fhir_action = "D"
+
+    # Ensure Practitioner is synced first to satisfy FHIR referential integrity
+    sync_practitioner(user_id)
+
     payload = {
         "resourceType": "AuditEvent",
         "id": f"audit-{audit_id}",
         "type": {"system": "http://terminology.hl7.org/CodeSystem/audit-event-type", "code": "rest"},
-        "action": action[:1].upper() if action else "E",
+        "action": fhir_action,
         "recorded": datetime.datetime.utcnow().isoformat() + "Z",
         "outcome": "0" if outcome == "Success" else "4",
         "agent": [{"requestor": True, "who": {"reference": f"Practitioner/doctor-{user_id}"}}],
@@ -370,6 +388,10 @@ def sync_plan_definition(pd_id: int, patient_id: int, title: str, description: s
 # ==============================================================================
 
 def sync_practitioner(doctor_id: int):
+    with _synced_practitioners_lock:
+        if doctor_id in _synced_practitioners:
+            return
+
     practitioner_payload = {
         "resourceType": "Practitioner",
         "id": f"doctor-{doctor_id}",
@@ -377,7 +399,10 @@ def sync_practitioner(doctor_id: int):
         "active": True,
         "name": [{"use": "official", "text": f"Doctor {doctor_id}"}]
     }
-    _put_resource("Practitioner", f"doctor-{doctor_id}", practitioner_payload)
+    success = _put_resource("Practitioner", f"doctor-{doctor_id}", practitioner_payload)
+    if success:
+        with _synced_practitioners_lock:
+            _synced_practitioners.add(doctor_id)
 
 def map_to_fhir_patient(patient: Patient) -> dict:
     birth_date = patient.dob.isoformat() if patient.dob else f"{datetime.datetime.now().year - patient.age}-01-01"

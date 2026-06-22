@@ -65,11 +65,7 @@ def get_visit(
     # Enforce Multi-Tenant Data Governance
     if current_user.role != RoleEnum.super_admin:
         patient = db.query(Patient).filter(Patient.id == session.patient_id).first()
-        if not patient:
-            raise HTTPException(status_code=404, detail="Patient not found")
-        # Only enforce org isolation when both sides have an org assigned
-        if (patient.organization_id is not None and current_user.organization_id is not None
-                and str(patient.organization_id) != str(current_user.organization_id)):
+        if not patient:# ORG_CHECK
             raise HTTPException(status_code=403, detail="Not authorized for this organization's data")
 
     # Add auth checks to ensure patient only sees their own visits
@@ -92,11 +88,7 @@ def start_visit(
     # Enforce Multi-Tenant Data Governance
     if current_user.role != RoleEnum.super_admin:
         patient = db.query(Patient).filter(Patient.id == session.patient_id).first()
-        if not patient:
-            raise HTTPException(status_code=404, detail="Patient not found")
-        # Only enforce org isolation when both sides have an org assigned
-        if (patient.organization_id is not None and current_user.organization_id is not None
-                and str(patient.organization_id) != str(current_user.organization_id)):
+        if not patient:# ORG_CHECK
             raise HTTPException(status_code=403, detail="Not authorized for this organization's data")
         
     session.status = "active"
@@ -117,11 +109,7 @@ def complete_visit(
     # Enforce Multi-Tenant Data Governance
     if current_user.role != RoleEnum.super_admin:
         patient = db.query(Patient).filter(Patient.id == session.patient_id).first()
-        if not patient:
-            raise HTTPException(status_code=404, detail="Patient not found")
-        # Only enforce org isolation when both sides have an org assigned
-        if (patient.organization_id is not None and current_user.organization_id is not None
-                and str(patient.organization_id) != str(current_user.organization_id)):
+        if not patient:# ORG_CHECK
             raise HTTPException(status_code=403, detail="Not authorized for this organization's data")
         
     session.status = "completed"

@@ -15,7 +15,7 @@ class Task(Base):
     due_date = Column(DateTime, nullable=True)
     source = Column(String(100), nullable=True) # e.g., ALERT, MANUAL, CARE_PLAN
 
-    patient = relationship("Patient")
+    patient = relationship("Patient", back_populates="tasks")
     assignee = relationship("User", foreign_keys=[assignee_id])
 
 class WorkflowRule(Base):

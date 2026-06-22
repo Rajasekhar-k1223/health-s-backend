@@ -8,9 +8,9 @@ class PlanDefinition(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     patient_id = Column(Integer, ForeignKey("patients.id"))
-    title = Column(String) # e.g., "Drug Interaction Alert"
+    title = Column(String(255)) # e.g., "Drug Interaction Alert"
     description = Column(Text)
-    status = Column(String, default="active") # active, draft, retired, unknown
+    status = Column(String(50), default="active") # active, draft, retired, unknown
     date_created = Column(DateTime, default=datetime.datetime.utcnow)
 
     patient = relationship("Patient", backref="plan_definitions")

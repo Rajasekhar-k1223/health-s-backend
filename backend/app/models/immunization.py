@@ -8,10 +8,10 @@ class Immunization(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     patient_id = Column(Integer, ForeignKey("patients.id"))
-    vaccine_code = Column(String)  # e.g., CVX code
-    vaccine_name = Column(String)
+    vaccine_code = Column(String(50))  # e.g., CVX code
+    vaccine_name = Column(String(255))
     administered_date = Column(DateTime, default=datetime.datetime.utcnow)
-    status = Column(String, default="completed") # completed, entered-in-error, not-done
+    status = Column(String(50), default="completed") # completed, entered-in-error, not-done
     notes = Column(Text, nullable=True)
 
     patient = relationship("Patient", back_populates="immunizations")

@@ -42,7 +42,11 @@ def get_patient_alerts(
     # Enforce Multi-Tenant Data Governance
     if current_user.role != RoleEnum.super_admin:
         patient = db.query(Patient).filter(Patient.id == patient_id).first()
-        if not patient or patient.organization_id != current_user.organization_id:
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        # Only enforce org isolation when both sides have an org assigned
+        if (patient.organization_id is not None and current_user.organization_id is not None
+                and str(patient.organization_id) != str(current_user.organization_id)):
             raise HTTPException(status_code=403, detail="Patient does not belong to your organization")
 
     return db.query(Alert).filter(Alert.patient_id == patient_id).order_by(Alert.timestamp.desc()).all()
@@ -77,7 +81,11 @@ def acknowledge_alert(
     # Enforce Multi-Tenant Data Governance
     if current_user.role != RoleEnum.super_admin:
         patient = db.query(Patient).filter(Patient.id == alert.patient_id).first()
-        if not patient or patient.organization_id != current_user.organization_id:
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        # Only enforce org isolation when both sides have an org assigned
+        if (patient.organization_id is not None and current_user.organization_id is not None
+                and str(patient.organization_id) != str(current_user.organization_id)):
             raise HTTPException(status_code=403, detail="Alert belongs to a patient outside your organization")
         
     alert.is_acknowledged = True
@@ -100,7 +108,11 @@ def resolve_alert(
     # Enforce Multi-Tenant Data Governance
     if current_user.role != RoleEnum.super_admin:
         patient = db.query(Patient).filter(Patient.id == alert.patient_id).first()
-        if not patient or patient.organization_id != current_user.organization_id:
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        # Only enforce org isolation when both sides have an org assigned
+        if (patient.organization_id is not None and current_user.organization_id is not None
+                and str(patient.organization_id) != str(current_user.organization_id)):
             raise HTTPException(status_code=403, detail="Alert belongs to a patient outside your organization")
         
     alert.is_resolved = True

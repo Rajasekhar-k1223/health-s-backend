@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: sentinel_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: sentinel
+      MYSQL_USER: sentinel_user
+      MYSQL_PASSWORD: sentinel_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - shared-db-net
+
+  mongodb:
+    image: mongo:6.0
+    container_name: sentinel_mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: rootpassword
+      MONGO_INITDB_DATABASE: sentinel
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - shared-db-net
+
+  redis:
+    image: redis:7.0-alpine
+    container_name: sentinel_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - shared-db-net
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: sentinel_qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - shared-db-net
+
+  minio:
+    image: minio/minio:latest
+    container_name: sentinel_minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - shared-db-net
+
+
+volumes:
+  mysql_data:
+  mongodb_data:
+  redis_data:
+  qdrant_data:
+  minio_data:
+
+
+networks:
+  shared-db-net:
+    external: true

@@ -1,4 +1,6 @@
 import os
+import json
+import re
 import asyncio
 import httpx
 from sqlalchemy.orm import Session
@@ -21,6 +23,56 @@ except ImportError:
     pass
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+
+# ─────────────────────────────────────────────────────────
+# Patient Extraction from raw OCR text via Ollama LLM
+# ─────────────────────────────────────────────────────────
+async def extract_patient_from_text(ocr_text: str) -> dict:
+    """
+    Asks Ollama to extract structured patient demographics from raw OCR text.
+    Returns a dict with keys: first_name, last_name, dob, age, gender, contact_number, mrn.
+    Falls back to safe defaults if the LLM is offline or returns malformed JSON.
+    """
+    DEFAULTS = {
+        "first_name": "Unknown",
+        "last_name": "Patient",
+        "dob": None,
+        "age": 0,
+        "gender": "Unknown",
+        "contact_number": None,
+        "mrn": None,
+    }
+
+    prompt = (
+        "You are a medical data extraction assistant. "
+        "Extract patient demographics from the following document text. "
+        "Return ONLY a valid JSON object with these keys: "
+        "first_name, last_name, dob (YYYY-MM-DD or null), age (integer or 0), "
+        "gender (Male/Female/Other or Unknown), contact_number (or null), mrn (or null). "
+        "If a field cannot be found, use null or 0 for age. "
+        "Do NOT include any explanation or markdown, only raw JSON.\n\n"
+        f"Document Text:\n{ocr_text[:3000]}"
+    )
+
+    try:
+        ollama_url = os.getenv("OLLAMA_URL", "http://host.docker.internal:11434")
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            response = await client.post(
+                f"{ollama_url}/api/generate",
+                json={"model": "llama3.2", "prompt": prompt, "stream": False}
+            )
+            if response.status_code == 200:
+                raw = response.json().get("response", "")
+                # Strip markdown code fences if present
+                raw = re.sub(r"```(?:json)?", "", raw).strip().rstrip("`").strip()
+                extracted = json.loads(raw)
+                # Merge with defaults to ensure all keys are present
+                return {**DEFAULTS, **{k: v for k, v in extracted.items() if v is not None and v != ""}}
+    except Exception as e:
+        print(f"⚠️  Patient extraction LLM error: {e}")
+
+    return DEFAULTS
+
 
 async def process_document_pipeline(document_id: int):
     """

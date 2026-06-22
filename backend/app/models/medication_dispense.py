@@ -8,10 +8,10 @@ class MedicationDispense(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     patient_id = Column(Integer, ForeignKey("patients.id"))
-    medication_name = Column(String)
-    quantity = Column(String)
+    medication_name = Column(String(255))
+    quantity = Column(String(50))
     days_supply = Column(Integer, nullable=True)
-    status = Column(String, default="completed") # preparation, in-progress, cancelled, on-hold, completed, entered-in-error, stopped, declined, unknown
+    status = Column(String(50), default="completed") # preparation, in-progress, cancelled, on-hold, completed, entered-in-error, stopped, declined, unknown
     handed_over_date = Column(DateTime, default=datetime.datetime.utcnow)
     notes = Column(Text, nullable=True)
 

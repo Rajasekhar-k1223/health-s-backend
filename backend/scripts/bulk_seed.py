@@ -21,8 +21,8 @@ from app.core.security import get_password_hash
 fake = Faker()
 FHIR_URL = "http://localhost:8080/fhir"
 
-NUM_USERS = 500
-NUM_PATIENTS = 9500 # Total 10k records
+NUM_USERS = 50
+NUM_PATIENTS = 200 # Total 250 records
 
 def generate_users(db, org_id, hashed_pw):
     print(f"Generating {NUM_USERS} user logins...")
@@ -94,7 +94,7 @@ def generate_patients(db, org_id):
                 dob=dob,
                 age=(time.localtime().tm_year - dob.year),
                 gender=random.choice(["Male", "Female", "Other"]),
-                contact_number=fake.phone_number(),
+                contact_number=fake.phone_number()[:20],
                 address=fake.address().replace("\n", ", "),
             )
             patients.append(p)

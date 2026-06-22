@@ -26,7 +26,7 @@ class User(Base):
     role = Column(Enum(RoleEnum), nullable=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True)
     
-    organization = relationship("Organization", backref="users")
+    organization_id = Column(String(36), ForeignKey("organization.id"), nullable=True)
+    organization = relationship("AdminOrganization")
     encounters = relationship("Encounter", back_populates="doctor")

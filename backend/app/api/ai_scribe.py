@@ -95,7 +95,11 @@ async def trigger_scribe(
     # Enforce Multi-Tenant Data Governance
     if current_user.role != RoleEnum.super_admin:
         patient = db.query(Patient).filter(Patient.id == tsession.patient_id).first()
-        if not patient or patient.organization_id != current_user.organization_id:
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        # Only enforce org isolation when both sides have an org assigned
+        if (patient.organization_id is not None and current_user.organization_id is not None
+                and str(patient.organization_id) != str(current_user.organization_id)):
             raise HTTPException(status_code=403, detail="Not authorized for this organization's data")
         
     if not tsession.transcription:
@@ -169,7 +173,11 @@ async def trigger_ambient_scribe(
     # Enforce Multi-Tenant Data Governance
     if current_user.role != RoleEnum.super_admin:
         patient = db.query(Patient).filter(Patient.id == appt.patient_id).first()
-        if not patient or patient.organization_id != current_user.organization_id:
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        # Only enforce org isolation when both sides have an org assigned
+        if (patient.organization_id is not None and current_user.organization_id is not None
+                and str(patient.organization_id) != str(current_user.organization_id)):
             raise HTTPException(status_code=403, detail="Not authorized for this organization's data")
         
     background_tasks.add_task(generate_ambient_soap_note_background, appointment_id)
@@ -188,7 +196,11 @@ def get_scribe_note(
     # Enforce Multi-Tenant Data Governance
     if current_user.role != RoleEnum.super_admin:
         patient = db.query(Patient).filter(Patient.id == note.patient_id).first()
-        if not patient or patient.organization_id != current_user.organization_id:
+        if not patient:
+            raise HTTPException(status_code=404, detail="Patient not found")
+        # Only enforce org isolation when both sides have an org assigned
+        if (patient.organization_id is not None and current_user.organization_id is not None
+                and str(patient.organization_id) != str(current_user.organization_id)):
             raise HTTPException(status_code=403, detail="Not authorized for this organization's data")
     
     # Also fetch the raw transcript

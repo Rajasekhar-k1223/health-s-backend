@@ -1,58 +1,121 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from typing import List, Optional
 from sqlalchemy.orm import Session
-from typing import List
 from app.core.database import get_db
 from app.core.security import require_role
-from app.models.user import RoleEnum
+from app.models.user import User, RoleEnum
 from app.models.patient import Patient
-from app.models.insight import Insight
-from app.schemas.patient import PatientCreate, PatientResponse, MedicalHistoryCreate, MedicalHistoryResponse
-from app.models.medical_history import MedicalHistory
-from app.services.fhir_sync import sync_patient_to_fhir
-import uuid
+from app.models.medical_history import MedicalHistory, HistoryStatusEnum
+from app.models.immunization import Immunization
+from app.models.family_history import FamilyHistory
+from app.models.procedure import Procedure
+from app.models.diagnostic_report import DiagnosticReport
+from app.services import fhir_sync
+from pydantic import BaseModel
+import datetime
+import random
 
 router = APIRouter(prefix="/patients", tags=["patients"])
 
-@router.post("/", response_model=PatientResponse)
-def create_patient(
-    patient_in: PatientCreate, 
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-    current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.hospital_admin, RoleEnum.doctor]))
-):
-    patient_data = patient_in.dict()
-    if not patient_data.get("mrn"):
-        patient_data["mrn"] = f"MRN-{uuid.uuid4().hex[:8].upper()}"
-        
-    new_patient = Patient(**patient_data)
-    
-    # Enforce Multi-Tenant Data Governance: Tie patient to current user's organization
-    if current_user.role != RoleEnum.super_admin:
-        new_patient.organization_id = current_user.organization_id
-        
-    db.add(new_patient)
-    db.commit()
-    db.refresh(new_patient)
-    
-    # Trigger asynchronous FHIR synchronization
-    background_tasks.add_task(sync_patient_to_fhir, new_patient)
-    
-    return new_patient
+class PatientCreate(BaseModel):
+    first_name: str
+    last_name: str
+    age: int
+    dob: Optional[str] = None
+    gender: Optional[str] = None
+    contact_number: Optional[str] = None
+    address: Optional[str] = None
+    primary_doctor_id: Optional[int] = None
 
-@router.get("/", response_model=List[PatientResponse])
+class ConditionCreate(BaseModel):
+    condition: str
+    diagnosed_date: Optional[str] = None
+    status: str = "active"
+    notes: Optional[str] = None
+
+class ImmunizationCreate(BaseModel):
+    vaccine_code: str
+    vaccine_name: str
+    status: str = "completed"
+    notes: Optional[str] = None
+
+class FamilyHistoryCreate(BaseModel):
+    relationship_code: str
+    condition_name: str
+    notes: Optional[str] = None
+
+class ProcedureCreate(BaseModel):
+    procedure_code: str
+    procedure_name: str
+    status: str = "completed"
+    notes: Optional[str] = None
+
+class AssignDoctorSchema(BaseModel):
+    doctor_id: int
+
+class ReportCreate(BaseModel):
+    test_name: str
+    conclusion: Optional[str] = None
+    result_value: Optional[str] = None
+    status: str = "final"
+
+@router.get("/")
 def get_patients(
     skip: int = 0, limit: int = 100, 
     db: Session = Depends(get_db),
     current_user = Depends(require_role([RoleEnum.hospital_admin, RoleEnum.doctor, RoleEnum.nurse]))
 ):
-    query = db.query(Patient)
-    # Enforce Multi-Tenant Data Governance
-    if current_user.role != RoleEnum.super_admin:
-        query = query.filter(Patient.organization_id == current_user.organization_id)
-        
-    return query.offset(skip).limit(limit).all()
+    patients = db.query(Patient).offset(skip).limit(limit).all()
+    return patients
 
-@router.get("/{patient_id}", response_model=PatientResponse)
+@router.get("/doctors/list")
+def list_doctors(
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role([RoleEnum.hospital_admin, RoleEnum.doctor, RoleEnum.nurse]))
+):
+    doctors = db.query(User).filter(User.role.in_([RoleEnum.doctor, RoleEnum.nurse])).all()
+    return [{"id": d.id, "first_name": d.first_name, "last_name": d.last_name, "role": d.role} for d in doctors]
+
+@router.post("/")
+def create_patient(
+    patient_in: PatientCreate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role([RoleEnum.hospital_admin, RoleEnum.doctor, RoleEnum.nurse]))
+):
+    parsed_dob = None
+    if patient_in.dob:
+        try:
+            parsed_dob = datetime.datetime.strptime(patient_in.dob, "%Y-%m-%d").date()
+        except Exception:
+            pass
+
+    # Generate a mock MRN
+    mrn = f"MRN-{random.randint(1000000, 9999999)}"
+
+    db_patient = Patient(
+        first_name=patient_in.first_name,
+        last_name=patient_in.last_name,
+        age=patient_in.age,
+        dob=parsed_dob,
+        gender=patient_in.gender or "other",
+        contact_number=patient_in.contact_number,
+        address=patient_in.address,
+        primary_doctor_id=patient_in.primary_doctor_id or current_user.id,
+        mrn=mrn,
+        risk_score=0.0,
+        priority="low"
+    )
+    db.add(db_patient)
+    db.commit()
+    db.refresh(db_patient)
+
+    # Sync to FHIR in background
+    background_tasks.add_task(fhir_sync.sync_patient_to_fhir, db_patient)
+
+    return db_patient
+
+@router.get("/{patient_id}")
 def get_patient(
     patient_id: int, 
     db: Session = Depends(get_db),
@@ -61,266 +124,246 @@ def get_patient(
     patient = db.query(Patient).filter(Patient.id == patient_id).first()
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
-    
-    # Enforce Multi-Tenant Data Governance
-    if current_user.role != RoleEnum.super_admin and current_user.role != RoleEnum.patient:
-        if patient.organization_id != current_user.organization_id:
-            raise HTTPException(status_code=403, detail="Patient does not belong to your organization")
+        
+    doctor_name = "Unassigned"
+    if patient.primary_doctor_id:
+        doctor = db.query(User).filter(User.id == patient.primary_doctor_id).first()
+        if doctor:
+            doctor_name = f"Dr. {doctor.first_name or ''} {doctor.last_name or ''}".strip()
+            if not doctor.first_name and not doctor.last_name:
+                doctor_name = f"Doctor #{doctor.id}"
 
-    # If the user is a patient, they can only view their own record
-    if current_user.role == RoleEnum.patient and patient.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not enough permissions to view this patient")
+    return {
+        "id": patient.id,
+        "mrn": patient.mrn,
+        "first_name": patient.first_name,
+        "last_name": patient.last_name,
+        "dob": patient.dob.isoformat() if patient.dob else None,
+        "gender": patient.gender,
+        "contact_number": patient.contact_number,
+        "address": patient.address,
+        "age": patient.age,
+        "risk_score": patient.risk_score,
+        "priority": patient.priority,
+        "primary_doctor_id": patient.primary_doctor_id,
+        "doctor_name": doctor_name,
+        "medical_history": [
+            {
+                "id": h.id,
+                "condition": h.condition,
+                "diagnosed_date": h.diagnosed_date.isoformat() if h.diagnosed_date else None,
+                "status": h.status,
+                "notes": h.notes
+            } for h in patient.medical_history
+        ],
+        "immunizations": [
+            {
+                "id": i.id,
+                "vaccine_code": i.vaccine_code,
+                "vaccine_name": i.vaccine_name,
+                "administered_date": i.administered_date.isoformat() if i.administered_date else None,
+                "status": i.status,
+                "notes": i.notes
+            } for i in patient.immunizations
+        ],
+        "family_histories": [
+            {
+                "id": f.id,
+                "relationship_code": f.relationship_code,
+                "condition_name": f.condition_name,
+                "notes": f.notes
+            } for f in patient.family_histories
+        ],
+        "procedures": [
+            {
+                "id": p.id,
+                "procedure_code": p.procedure_code,
+                "procedure_name": p.procedure_name,
+                "status": p.status,
+                "notes": p.notes
+            } for p in patient.procedures
+        ],
+        "reports": [
+            {
+                "id": r.id,
+                "test_name": r.test_name,
+                "status": r.status,
+                "conclusion": r.conclusion,
+                "result_value": r.result_value,
+                "issued_date": r.issued_date.isoformat() if r.issued_date else None
+            } for r in db.query(DiagnosticReport).filter(DiagnosticReport.patient_id == patient_id).all()
+        ],
+        "encounters": [
+            {
+                "id": e.id,
+                "status": e.status,
+                "encounter_class": e.encounter_class,
+                "start_time": e.start_time.isoformat() if e.start_time else None,
+                "end_time": e.end_time.isoformat() if e.end_time else None,
+                "reason": e.reason
+            } for e in patient.encounters
+        ]
+    }
 
-    return patient
-
-@router.put("/{patient_id}", response_model=PatientResponse)
-def update_patient(
+@router.post("/{patient_id}/assign-doctor")
+def assign_doctor(
     patient_id: int,
-    patient_in: PatientCreate,
+    schema: AssignDoctorSchema,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.hospital_admin, RoleEnum.doctor]))
+    current_user = Depends(require_role([RoleEnum.hospital_admin, RoleEnum.doctor, RoleEnum.nurse]))
 ):
     patient = db.query(Patient).filter(Patient.id == patient_id).first()
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
         
-    # Enforce Multi-Tenant Data Governance
-    if current_user.role != RoleEnum.super_admin:
-        if patient.organization_id != current_user.organization_id:
-            raise HTTPException(status_code=403, detail="Patient does not belong to your organization")
+    doctor = db.query(User).filter(User.id == schema.doctor_id).first()
+    if not doctor or doctor.role not in [RoleEnum.doctor, RoleEnum.nurse]:
+        raise HTTPException(status_code=400, detail="Invalid doctor ID")
         
-    for key, value in patient_in.dict(exclude_unset=True).items():
-        setattr(patient, key, value)
-        
+    patient.primary_doctor_id = schema.doctor_id
     db.commit()
     db.refresh(patient)
     
-    background_tasks.add_task(sync_patient_to_fhir, patient)
-    return patient
-
-@router.post("/{patient_id}/history", response_model=MedicalHistoryResponse)
-def add_medical_history(
-    patient_id: int,
-    history_in: MedicalHistoryCreate,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-    current_user = Depends(require_role([RoleEnum.doctor, RoleEnum.nurse]))
-):
-    patient = db.query(Patient).filter(Patient.id == patient_id).first()
-    if not patient:
-        raise HTTPException(status_code=404, detail="Patient not found")
-        
-    new_history = MedicalHistory(**history_in.dict(), patient_id=patient_id)
-    db.add(new_history)
-    db.commit()
-    db.refresh(new_history)
+    background_tasks.add_task(fhir_sync.sync_patient_to_fhir, patient)
     
-    from app.services.fhir_sync import sync_condition
-    background_tasks.add_task(sync_condition, new_history.id, patient_id, new_history.condition, new_history.status.value)
-    
-    return new_history
+    return {"message": "Doctor assigned successfully", "primary_doctor_id": patient.primary_doctor_id}
 
-@router.get("/{patient_id}/history", response_model=List[MedicalHistoryResponse])
+@router.get("/{patient_id}/history")
 def get_medical_history(
     patient_id: int,
     db: Session = Depends(get_db),
     current_user = Depends(require_role([RoleEnum.doctor, RoleEnum.nurse, RoleEnum.patient]))
 ):
-    return db.query(MedicalHistory).filter(MedicalHistory.patient_id == patient_id).all()
+    history = db.query(MedicalHistory).filter(MedicalHistory.patient_id == patient_id).all()
+    return history
 
-@router.get("/{patient_id}/360")
-def get_patient_360(
-    patient_id: int, 
-    db: Session = Depends(get_db),
-    current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.doctor, RoleEnum.nurse]))
-):
-    patient = db.query(Patient).filter(Patient.id == patient_id).first()
-    if not patient:
-        raise HTTPException(status_code=404, detail="Patient not found")
-        
-    latest_insight = db.query(Insight).filter(Insight.patient_id == patient_id).order_by(Insight.timestamp.desc()).first()
-    
-    if latest_insight:
-        insight_dict = {
-            "risk_score": latest_insight.score,
-            "risk_level": "Critical" if latest_insight.score > 80 else "High" if latest_insight.score > 60 else "Medium" if latest_insight.score > 30 else "Low",
-            "summary": latest_insight.summary
-        }
-    else:
-        insight_dict = {
-            "risk_score": 0,
-            "risk_level": "Pending",
-            "summary": "No AI insights generated yet. This is not a diagnosis. Clinical review is recommended."
-        }
-        
-    return {
-        "patient": {
-            "id": patient.id,
-            "first_name": patient.first_name,
-            "last_name": patient.last_name,
-            "dob": "1980-01-01", # Mocked
-            "gender": "Unknown", # Mocked
-            "blood_type": "Unknown", # Mocked
-            "mrn": f"MRN-{patient.id}",
-            "ward_id": patient.ward_id
-        },
-        "live_vitals": {
-            "heart_rate": 82,
-            "spo2": 98,
-            "temperature": 98.6,
-            "respiration_rate": 16,
-            "timestamp": "2023-10-26T15:35:00Z"
-        },
-        "ai_insights": insight_dict,
-        "recent_documents": [
-            {
-                "id": "DOC-102",
-                "type": "Lab Report",
-                "date": "2023-10-25",
-                "findings": ["Normal CBC", "Slightly elevated LDL"]
-            },
-            {
-                "id": "DOC-103",
-                "type": "Discharge Summary",
-                "date": "2022-04-12",
-                "findings": ["Recovered from mild pneumonia."]
-            }
-        ],
-        "timeline_events": [
-            {"date": "2023-10-26T10:00:00Z", "type": "VitalsAlert", "description": "Heart rate spiked to 110 BPM. Resolved."}
-        ]
-    }
-
-from pydantic import BaseModel
-class ConsentCreate(BaseModel):
-    category: str = "hipaa-notice"
-    policy_rule: str = "http://sentinel-health.os/privacy-policy"
-    provision_type: str = "permit"
-
-@router.post("/{patient_id}/consent")
-def create_patient_consent(
+@router.post("/{patient_id}/history")
+def add_condition(
     patient_id: int,
-    consent_in: ConsentCreate,
+    cond_in: ConditionCreate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    current_user = Depends(require_role([RoleEnum.super_admin, RoleEnum.hospital_admin, RoleEnum.patient]))
+    current_user = Depends(require_role([RoleEnum.doctor, RoleEnum.nurse]))
 ):
-    from app.models.consent import Consent
-    
-    patient = db.query(Patient).filter(Patient.id == patient_id).first()
-    if not patient:
-        raise HTTPException(status_code=404, detail="Patient not found")
-        
-    consent = Consent(
-        patient_id=patient_id,
-        organization_id=patient.organization_id,
-        category=consent_in.category,
-        policy_rule=consent_in.policy_rule,
-        provision_type=consent_in.provision_type
-    )
-    db.add(consent)
-    db.commit()
-    db.refresh(consent)
-    
-    from app.services.fhir_sync import sync_consent
-    background_tasks.add_task(sync_consent, consent.id, patient_id, consent.organization_id, consent.status.value, consent.provision_type)
-    
-    return consent
+    parsed_date = None
+    if cond_in.diagnosed_date:
+        try:
+            parsed_date = datetime.datetime.strptime(cond_in.diagnosed_date, "%Y-%m-%d").date()
+        except Exception:
+            pass
 
-class ImmunizationCreate(BaseModel):
-    vaccine_code: str
-    vaccine_name: str
-    status: str = "completed"
-    notes: str = None
+    db_history = MedicalHistory(
+        patient_id=patient_id,
+        condition=cond_in.condition,
+        diagnosed_date=parsed_date,
+        status=HistoryStatusEnum(cond_in.status),
+        notes=cond_in.notes
+    )
+    db.add(db_history)
+    db.commit()
+    db.refresh(db_history)
+
+    background_tasks.add_task(fhir_sync.sync_condition, db_history.id, patient_id, cond_in.condition, cond_in.status)
+
+    return db_history
 
 @router.post("/{patient_id}/immunizations")
-def create_patient_immunization(
+def add_immunization(
     patient_id: int,
     imm_in: ImmunizationCreate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user = Depends(require_role([RoleEnum.doctor, RoleEnum.nurse]))
 ):
-    from app.models.immunization import Immunization
-    patient = db.query(Patient).filter(Patient.id == patient_id).first()
-    if not patient: raise HTTPException(status_code=404, detail="Patient not found")
-        
-    imm = Immunization(
+    db_imm = Immunization(
         patient_id=patient_id,
         vaccine_code=imm_in.vaccine_code,
         vaccine_name=imm_in.vaccine_name,
         status=imm_in.status,
         notes=imm_in.notes
     )
-    db.add(imm)
+    db.add(db_imm)
     db.commit()
-    db.refresh(imm)
-    
-    from app.services.fhir_sync import sync_immunization
-    background_tasks.add_task(sync_immunization, imm.id, patient_id, imm.vaccine_code, imm.vaccine_name, imm.status)
-    return imm
+    db.refresh(db_imm)
 
-class FamilyHistoryCreate(BaseModel):
-    relationship_code: str
-    condition_name: str
-    notes: str = None
+    background_tasks.add_task(fhir_sync.sync_immunization, db_imm.id, patient_id, imm_in.vaccine_code, imm_in.vaccine_name, imm_in.status)
+
+    return db_imm
 
 @router.post("/{patient_id}/family-history")
-def create_patient_family_history(
+def add_family_history(
     patient_id: int,
     fh_in: FamilyHistoryCreate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user = Depends(require_role([RoleEnum.doctor, RoleEnum.nurse]))
 ):
-    from app.models.family_history import FamilyHistory
-    patient = db.query(Patient).filter(Patient.id == patient_id).first()
-    if not patient: raise HTTPException(status_code=404, detail="Patient not found")
-        
-    fh = FamilyHistory(
+    db_fh = FamilyHistory(
         patient_id=patient_id,
         relationship_code=fh_in.relationship_code,
         condition_name=fh_in.condition_name,
         notes=fh_in.notes
     )
-    db.add(fh)
+    db.add(db_fh)
     db.commit()
-    db.refresh(fh)
-    
-    from app.services.fhir_sync import sync_family_history
-    background_tasks.add_task(sync_family_history, fh.id, patient_id, fh.relationship_code, fh.condition_name)
-    return fh
+    db.refresh(db_fh)
 
-class ProcedureCreate(BaseModel):
-    procedure_code: str
-    procedure_name: str
-    status: str = "completed"
-    notes: str = None
+    background_tasks.add_task(fhir_sync.sync_family_history, db_fh.id, patient_id, fh_in.relationship_code, fh_in.condition_name)
+
+    return db_fh
 
 @router.post("/{patient_id}/procedures")
-def create_patient_procedure(
+def add_procedure(
     patient_id: int,
     proc_in: ProcedureCreate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user = Depends(require_role([RoleEnum.doctor, RoleEnum.nurse]))
 ):
-    from app.models.procedure import Procedure
-    patient = db.query(Patient).filter(Patient.id == patient_id).first()
-    if not patient: raise HTTPException(status_code=404, detail="Patient not found")
-        
-    proc = Procedure(
+    db_proc = Procedure(
         patient_id=patient_id,
         procedure_code=proc_in.procedure_code,
         procedure_name=proc_in.procedure_name,
         status=proc_in.status,
         notes=proc_in.notes
     )
-    db.add(proc)
+    db.add(db_proc)
     db.commit()
-    db.refresh(proc)
-    
-    from app.services.fhir_sync import sync_procedure
-    background_tasks.add_task(sync_procedure, proc.id, patient_id, proc.procedure_code, proc.procedure_name, proc.status)
-    return proc
+    db.refresh(db_proc)
+
+    background_tasks.add_task(fhir_sync.sync_procedure, db_proc.id, patient_id, proc_in.procedure_code, proc_in.procedure_name, proc_in.status)
+
+    return db_proc
+
+@router.get("/{patient_id}/reports")
+def get_reports(
+    patient_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role([RoleEnum.doctor, RoleEnum.nurse, RoleEnum.patient]))
+):
+    reports = db.query(DiagnosticReport).filter(DiagnosticReport.patient_id == patient_id).all()
+    return reports
+
+@router.post("/{patient_id}/reports")
+def add_report(
+    patient_id: int,
+    report_in: ReportCreate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user = Depends(require_role([RoleEnum.doctor, RoleEnum.nurse]))
+):
+    db_report = DiagnosticReport(
+        patient_id=patient_id,
+        test_name=report_in.test_name,
+        conclusion=report_in.conclusion,
+        result_value=report_in.result_value,
+        status=report_in.status
+    )
+    db.add(db_report)
+    db.commit()
+    db.refresh(db_report)
+
+    background_tasks.add_task(fhir_sync.sync_diagnostic_report, db_report.id, patient_id, report_in.test_name, report_in.result_value, report_in.conclusion)
+
+    return db_report

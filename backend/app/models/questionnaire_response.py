@@ -8,8 +8,8 @@ class QuestionnaireResponse(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     patient_id = Column(Integer, ForeignKey("patients.id"))
-    questionnaire_name = Column(String) # e.g., PHQ-9
-    status = Column(String, default="completed") # in-progress, completed, amended, entered-in-error, stopped
+    questionnaire_name = Column(String(255)) # e.g., PHQ-9
+    status = Column(String(50), default="completed") # in-progress, completed, amended, entered-in-error, stopped
     authored = Column(DateTime, default=datetime.datetime.utcnow)
     answers = Column(JSON) # Store responses as JSON
 

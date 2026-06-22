@@ -13,3 +13,12 @@ def get_db():
         yield db
     finally:
         db.close()
+
+from motor.motor_asyncio import AsyncIOMotorClient
+
+MONGO_URL = os.getenv("MONGO_URL", "mongodb://root:rootpassword@sentinel_mongodb:27017/?authSource=admin")
+mongo_client = AsyncIOMotorClient(MONGO_URL)
+mongo_db = mongo_client["sentinel"]
+
+async def get_mongo_db():
+    return mongo_db

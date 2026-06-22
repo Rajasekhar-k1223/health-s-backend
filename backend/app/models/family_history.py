@@ -8,8 +8,8 @@ class FamilyHistory(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     patient_id = Column(Integer, ForeignKey("patients.id"))
-    relationship_code = Column(String)  # e.g., FTH (father), MTH (mother)
-    condition_name = Column(String)
+    relationship_code = Column(String(50))  # e.g., FTH (father), MTH (mother)
+    condition_name = Column(String(255))
     notes = Column(Text, nullable=True)
     date_recorded = Column(DateTime, default=datetime.datetime.utcnow)
 

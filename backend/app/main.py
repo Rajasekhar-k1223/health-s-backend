@@ -4,7 +4,7 @@ from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
 from app.core.database import engine
 from app.models.base import Base
 # Import all models so Base knows about them before create_all
-from app.models import user, refresh_token, ward, care_team, patient, device, alert, audit, insight, note, device_auth, ota, document, clinical_note, security, tenant, scheduling, workflow, developer
+import app.models
 
 Base.metadata.create_all(bind=engine)
 

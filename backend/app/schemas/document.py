@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Dict, Any
 from datetime import datetime
 
 class DocumentBase(BaseModel):
@@ -24,3 +24,12 @@ class SearchResult(BaseModel):
     filename: str
     chunk_text: str
     score: float
+
+class NewPatientUploadResponse(BaseModel):
+    """Returned when a document is uploaded for an unregistered patient."""
+    document_id: int
+    patient_id: int
+    patient_name: str
+    extracted_info: Dict[str, Any]
+    status: str
+    message: str

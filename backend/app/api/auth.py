@@ -35,8 +35,7 @@ def login(response: Response, form_data: OAuth2PasswordRequestForm = Depends(), 
     if not user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
 
-    # Generate Access Token
-    access_token_expires = timedelta(minutes=15)
+    access_token_expires = timedelta(minutes=480)  # 8 hours
     access_token = create_access_token(
         data={"sub": user.username, "role": user.role.value, "org_id": user.organization_id}, expires_delta=access_token_expires
     )
@@ -83,8 +82,7 @@ def refresh_token(request: Request, response: Response, db: Session = Depends(ge
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User inactive or deleted")
 
-    # Generate new access token
-    access_token_expires = timedelta(minutes=15)
+    access_token_expires = timedelta(minutes=480)  # 8 hours
     access_token = create_access_token(
         data={"sub": user.username, "role": user.role.value, "org_id": user.organization_id}, expires_delta=access_token_expires
     )

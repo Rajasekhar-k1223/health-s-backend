@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  openemr:
+    image: openemr/openemr:latest
+    container_name: openemr_app
+    restart: always
+    ports:
+      - "8300:80"
+      - "8443:443"
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_ROOT_PASS: rootpassword
+      MYSQL_USER: openemr
+      MYSQL_PASS: openemrpassword
+      OE_USER: admin
+      OE_PASS: pass
+    volumes:
+      - openemr_site_data:/var/www/localhost/htdocs/openemr/sites
+    networks:
+      - shared-db-net
+
+volumes:
+  openemr_site_data:
+
+networks:
+  shared-db-net:
+    external: true
+    name: shared-db-net

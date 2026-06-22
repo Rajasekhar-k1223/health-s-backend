@@ -26,7 +26,7 @@ class Location(Base):
     type = Column(String(100), default="CLINIC") # HOSPITAL, CLINIC, PHARMACY
     status = Column(String(50), default="ACTIVE")
 
-    organization = relationship("Organization", back_populates="locations")
+    organization = relationship("app.models.tenant.Organization", back_populates="locations")
     departments = relationship("Department", back_populates="location")
 
 class Department(Base):
